@@ -7,9 +7,6 @@ const route = new Hono();
 // POST /webhook/crelio
 // Crelio calls this for every status change. Must return 200 fast.
 route.post("/crelio", async (c) => {
-  // Return 200 immediately — Crelio will retry on anything else
-  c.executionCtx?.waitUntil?.(handleAsync(c));
-
   const payload = await c.req.json<CrelioWebhookPayload>().catch(() => null);
   if (!payload) return c.json({ ok: true });
 
@@ -23,16 +20,16 @@ route.post("/crelio", async (c) => {
     }
   }
 
-  // Process async — don't await, already returned 200
-  processWebhook(payload)
+  // Keep the Edge isolate alive until processing completes
+  const work = processWebhook(payload)
     .then((result) => {
       if (result.skipped) console.log(`Webhook skipped: ${result.skipped}`);
     })
     .catch((err) => console.error("Webhook processing error:", err));
 
+  c.executionCtx?.waitUntil?.(work);
+
   return c.json({ ok: true });
 });
-
-async function handleAsync(_c: unknown) {} // waitUntil stub for edge runtimes
 
 export default route;
