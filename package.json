@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "bun --hot src/index.ts",
-    "start": "bun src/index.ts"
+    "start": "bun src/index.ts",
+    "build": "bun build ./src/vercel-entry.ts --outfile=./api/index.js --target=node --packages=external"
   },
   "devDependencies": {
     "@types/bun": "latest",
