@@ -1,0 +1,23 @@
+{
+  "name": "@cadabams/api",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun --hot src/index.ts",
+    "start": "bun src/index.ts"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^26.0.1"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.6",
+    "@supabase/supabase-js": "^2.108.2",
+    "hono": "^4.12.27",
+    "postgres": "^3.4.9"
+  }
+}

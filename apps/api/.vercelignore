@@ -1,0 +1,4 @@
+node_modules
+.env
+src/lib/migrate.ts
+src/lib/test-connection.ts
