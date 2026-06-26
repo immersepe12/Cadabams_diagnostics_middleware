@@ -1,4 +1,3 @@
 {
-  "buildCommand": "bun run build",
-  "rewrites": [{ "source": "/(.*)", "destination": "/api/index" }]
+  "buildCommand": "bun run build:vercel"
 }
