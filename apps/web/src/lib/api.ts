@@ -33,7 +33,7 @@ export interface BookingPayload {
   centreId: string;
   channel: "d2c" | "corporate" | "walkin";
   organizationIdLH?: number;
-  patient: { name: string; mobile?: string; age: number; gender: "M" | "F" | "O"; email?: string; city?: string; dob?: string };
+  patient: { name: string; mobile?: string; age: number; gender: "M" | "F" | "O"; email?: string; city?: string; dob?: string; labPatientId?: string; patientId?: string };
   tests: Array<{ crelioTestId: string; testName: string }>;
   payment: { totalAmount: number; advance?: number; paymentType: "Cash" | "Online" | "Credit" };
   referralName?: string;

@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Card, Form, Input, InputNumber, Select, Radio, DatePicker, Button, Space,
-  Typography, message, Divider, Row, Col,
+  Typography, message, Divider, Row, Col, Alert,
 } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, UserOutlined } from "@ant-design/icons";
 import { supabaseClient } from "../../lib/supabase";
 import { createBooking, fetchOrganizations, type BookingPayload, type CrelioOrg } from "../../lib/api";
 
@@ -25,6 +25,52 @@ export function BookingNew() {
   const [loadingTests, setLoadingTests] = useState(false);
   const [orgs, setOrgs] = useState<CrelioOrg[]>([]);
   const [loadingOrgs, setLoadingOrgs] = useState(false);
+
+  // Existing-patient search (over our mirror). Picking one reuses the Crelio
+  // patient; leaving it blank means the entered details create a new patient.
+  type PatientRow = {
+    patient_mobile: string; patient_name: string | null;
+    patient_age: number | null; patient_gender: string | null;
+    crelio_patient_id: string | null;
+  };
+  const [patientResults, setPatientResults] = useState<PatientRow[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [linked, setLinked] = useState<{ mobile: string; name: string | null; crelioPatientId: string | null } | null>(null);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function searchPatients(q: string) {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!q || q.trim().length < 2) { setPatientResults([]); return; }
+    searchTimer.current = setTimeout(async () => {
+      setSearching(true);
+      const { data } = await supabaseClient
+        .from("orders")
+        .select("patient_mobile, patient_name, patient_age, patient_gender, crelio_patient_id, created_at")
+        .or(`patient_mobile.ilike.%${q}%,patient_name.ilike.%${q}%`)
+        .not("patient_mobile", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(30);
+      const seen = new Set<string>();
+      const uniq = (data ?? []).filter((r: any) => {
+        if (!r.patient_mobile || seen.has(r.patient_mobile)) return false;
+        seen.add(r.patient_mobile); return true;
+      }) as PatientRow[];
+      setPatientResults(uniq);
+      setSearching(false);
+    }, 300);
+  }
+
+  function pickPatient(mobile: string) {
+    const r = patientResults.find((x) => x.patient_mobile === mobile);
+    if (!r) return;
+    form.setFieldsValue({
+      name: r.patient_name ?? undefined,
+      mobile: r.patient_mobile,
+      age: r.patient_age ?? undefined,
+      gender: r.patient_gender ?? "M",
+    });
+    setLinked({ mobile: r.patient_mobile, name: r.patient_name, crelioPatientId: r.crelio_patient_id });
+  }
 
   const centre = Form.useWatch("centreId", form);
   const channel = Form.useWatch("channel", form);
@@ -75,6 +121,8 @@ export function BookingNew() {
         email: v.email || undefined,
         city: v.city || undefined,
         dob: v.dob ? v.dob.format("YYYY-MM-DD") : undefined,
+        // Reuse the Crelio patient only if the linked mobile still matches.
+        labPatientId: linked && v.mobile === linked.mobile ? (linked.crelioPatientId || undefined) : undefined,
       },
       tests: (v.tests ?? []).map((id: string) => ({ crelioTestId: id, testName: testLabel(id) })),
       payment: {
@@ -151,6 +199,31 @@ export function BookingNew() {
         </Card>
 
         <Card title="Patient" size="small" style={{ marginBottom: 16 }}>
+          <Form.Item label="Find existing patient" tooltip="Search mirrored patients by name or mobile. Pick one to reuse them, or just fill the details below to create a new patient.">
+            <Select
+              showSearch
+              filterOption={false}
+              onSearch={searchPatients}
+              onChange={(m) => pickPatient(String(m))}
+              loading={searching}
+              suffixIcon={<UserOutlined />}
+              placeholder="Search by name or mobile…"
+              notFoundContent={searching ? "Searching…" : "Type at least 2 characters"}
+              options={patientResults.map((r) => ({
+                value: r.patient_mobile,
+                label: `${r.patient_name ?? "No name"} · ${r.patient_mobile}`,
+              }))}
+            />
+          </Form.Item>
+          {linked && (
+            <Alert
+              type="success"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message={`Reusing existing patient: ${linked.name ?? linked.mobile}${linked.crelioPatientId ? ` (Crelio #${linked.crelioPatientId})` : ""}`}
+              action={<Button size="small" onClick={() => setLinked(null)}>Use as new patient</Button>}
+            />
+          )}
           <Row gutter={16}>
             <Col span={12}><Form.Item name="name" label="Full name" rules={[{ required: true }]}><Input /></Form.Item></Col>
             <Col span={12}><Form.Item name="mobile" label="Mobile"><Input /></Form.Item></Col>

@@ -20,6 +20,8 @@ export interface BookingInput {
     city?: string;
     dob?: string;                // YYYY-MM-DD
     patientType?: "IP" | "OP";
+    labPatientId?: string;       // set → reuse this existing Crelio patient
+    patientId?: string;
   };
   tests: Array<{ crelioTestId: string; testName: string; testCode?: string }>;
   payment: {
@@ -68,6 +70,9 @@ export async function createBooking(input: BookingInput) {
     city:        input.patient.city ?? "",
     patientType: input.patient.patientType ?? "OP",
     dob:         input.patient.dob ?? "",
+    // Set → Crelio reuses this patient; empty → creates a new one.
+    labPatientId: input.patient.labPatientId ?? "",
+    patientId:    input.patient.patientId ?? "",
     billDetails: {
       emergencyFlag:    "0",
       totalAmount:      String(input.payment.totalAmount),
