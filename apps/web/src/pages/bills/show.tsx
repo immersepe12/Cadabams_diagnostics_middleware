@@ -5,10 +5,12 @@ import {
   Upload, message, Timeline, Tooltip,
 } from "antd";
 import {
-  ArrowLeftOutlined, LinkOutlined, UploadOutlined, CheckCircleOutlined,
+  ArrowLeftOutlined, LinkOutlined, UploadOutlined, CheckCircleOutlined, ReloadOutlined,
 } from "@ant-design/icons";
+import { useState } from "react";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { supabaseClient } from "../../lib/supabase";
+import { syncBill } from "../../lib/api";
 
 const STATUS_COLOR: Record<string, string> = {
   booked: "blue",
@@ -102,6 +104,27 @@ export function BillShow() {
   const items = itemsData?.data ?? [];
   const events = eventsData?.data ?? [];
 
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Pull this bill's latest status from Crelio (getOrderStatusAPI), then re-read.
+  async function refreshFromCrelio() {
+    if (!order?.crelio_bill_id || !order?.centre_id) {
+      message.warning("This bill has no Crelio bill ID yet — nothing to refresh.");
+      return;
+    }
+    setRefreshing(true);
+    try {
+      const res = await syncBill(order.crelio_bill_id, order.centre_id);
+      message.success(`Refreshed ${res.tests} test(s) from Crelio`);
+      invalidate({ resource: "order_items", invalidates: ["list"] });
+      invalidate({ resource: "orders", invalidates: ["detail"] });
+    } catch (err: any) {
+      message.error(err?.message ?? "Crelio refresh failed");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
   async function handleUpload(options: UploadRequestOption, itemId: string) {
     const file = options.file as File;
     const path = `${id}/${itemId}/${file.name}`;
@@ -150,6 +173,16 @@ export function BillShow() {
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             Crelio #{order.crelio_bill_id}
           </Typography.Text>
+        )}
+        {order?.crelio_bill_id && (
+          <Button
+            size="small"
+            icon={<ReloadOutlined />}
+            loading={refreshing}
+            onClick={refreshFromCrelio}
+          >
+            Refresh from Crelio
+          </Button>
         )}
       </Space>
 

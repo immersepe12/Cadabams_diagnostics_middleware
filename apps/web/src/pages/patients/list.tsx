@@ -1,9 +1,8 @@
 import { useTable, List } from "@refinedev/antd";
-import { Table, Input, Button, Space, Alert, message } from "antd";
-import { SearchOutlined, UserOutlined, CloudDownloadOutlined } from "@ant-design/icons";
+import { Table, Input, Button, Space, Alert } from "antd";
+import { SearchOutlined, UserOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { useState } from "react";
-import { syncPatient } from "../../lib/api";
 
 type Patient = {
   mobile: string;
@@ -21,7 +20,6 @@ function fmtDate(v: string) {
 export function PatientList() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
-  const [pulling, setPulling] = useState(false);
 
   // Reads the `patients` SQL view (orders grouped by phone) — server-paginated.
   const { tableProps, setFilters } = useTable<Patient>({
@@ -46,36 +44,13 @@ export function PatientList() {
     );
   }
 
-  // On-demand pull: fetch this phone's bills from Crelio, then open the patient.
-  async function pullFromCrelio() {
-    const phone = query.replace(/\D/g, "");
-    if (phone.length < 10) {
-      message.warning("Enter a 10-digit phone number to pull from Crelio");
-      return;
-    }
-    setPulling(true);
-    try {
-      const res = await syncPatient(phone);
-      if (res.synced > 0) {
-        message.success(`Pulled ${res.synced} bill(s) from Crelio`);
-        navigate(`/patients/${phone}`);
-      } else {
-        message.info("No bills found for this number in Crelio");
-      }
-    } catch (err: any) {
-      message.error(err?.message ?? "Crelio lookup failed");
-    } finally {
-      setPulling(false);
-    }
-  }
-
   return (
     <List title="Patients">
       <Alert
         type="info"
         showIcon
         style={{ marginBottom: 16 }}
-        message="This list shows patients already pulled into the dashboard. To add a new patient, enter their phone and click “Pull from Crelio”."
+        message="Patients appear here as Crelio webhooks arrive (new bills, registrations, reports) — the dashboard mirrors them automatically. Crelio has no patient-search API, so there's no manual lookup."
       />
 
       <Space style={{ marginBottom: 16 }} wrap>
@@ -87,13 +62,6 @@ export function PatientList() {
           onChange={(e) => applySearch(e.target.value)}
           allowClear
         />
-        <Button
-          icon={<CloudDownloadOutlined />}
-          loading={pulling}
-          onClick={pullFromCrelio}
-        >
-          Pull from Crelio
-        </Button>
       </Space>
 
       <Table<Patient>
