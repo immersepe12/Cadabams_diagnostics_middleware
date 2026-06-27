@@ -1,11 +1,19 @@
 import { supabase } from "../../lib/supabase";
 import { crelioGet } from "./client";
-import type { CentreId, CrelioCatalogueResponse, CrelioTest } from "./types";
+import type { CentreId } from "./types";
 
 export async function syncCatalogue(centreId: CentreId): Promise<{ synced: number }> {
-  const raw = await crelioGet<CrelioCatalogueResponse>(centreId, "/getAllTestsAndProfiles/");
+  const raw = await crelioGet<any>(centreId, "/getAllTestsAndProfiles/");
 
-  const tests: CrelioTest[] = raw.tests ?? raw.data ?? [];
+  // Crelio signals errors (e.g. bad token) with a non-200 `code` + `Message`,
+  // returned over HTTP 200 — surface it instead of silently syncing nothing.
+  if (raw?.code && raw.code !== 200) {
+    throw new Error(`Crelio catalogue error for ${centreId}: ${raw.Message ?? `code ${raw.code}`}`);
+  }
+
+  // Real shape: { code, testList: [atomic tests], profileTestList: [panels] }.
+  // Each item has testID / testName / departmentName.
+  const tests: any[] = [...(raw?.testList ?? []), ...(raw?.profileTestList ?? [])];
 
   if (!tests.length) {
     console.warn(`syncCatalogue: no tests returned for ${centreId}`);
@@ -19,9 +27,9 @@ export async function syncCatalogue(centreId: CentreId): Promise<{ synced: numbe
   for (let i = 0; i < tests.length; i += BATCH) {
     const batch = tests.slice(i, i + BATCH).map((t) => ({
       centre_id: centreId,
-      crelio_test_id: String(t.testId),
+      crelio_test_id: String(t.testID ?? t.testId),
       test_name: t.testName,
-      department: t.department ?? null,
+      department: t.departmentName ?? t.department ?? null,
       is_active: true,
       synced_at: new Date().toISOString(),
     }));

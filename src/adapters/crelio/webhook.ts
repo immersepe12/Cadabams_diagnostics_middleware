@@ -12,10 +12,21 @@ import type { CrelioWebhookPayload } from "./types";
 
 const str = (v: unknown): string => (v == null ? "" : String(v).trim());
 
+// labId/orgId arrive flat or nested ({labId}/{orgId}). Pull the numeric id.
+function flatId(v: any, ...keys: string[]): number {
+  if (v && typeof v === "object") {
+    for (const k of keys) if (v[k] != null) return Number(v[k]);
+    return 0;
+  }
+  return Number(v ?? 0);
+}
+
 function extractLabId(raw: any): number {
-  const l = raw.labId ?? raw.lab_id ?? raw.orgId ?? raw.org_id;
-  if (l && typeof l === "object") return Number(l.labId ?? l.lab_id ?? l.orgId ?? 0);
-  return Number(l ?? 0);
+  return flatId(raw.labId ?? raw.lab_id, "labId", "lab_id") || 0;
+}
+
+function extractOrgId(raw: any): number {
+  return flatId(raw.orgId ?? raw.org_id, "orgId", "org_id") || 0;
 }
 
 function extractTestIds(raw: any): string[] {
@@ -53,6 +64,7 @@ interface Normalised {
   orderNumber: string;
   patientId: string;
   labId: number;
+  orgId: number;
   status: string;
   testIds: string[];
   reportUrl: string | null;
@@ -73,6 +85,7 @@ export function normalise(raw: any): Normalised {
     orderNumber: str(raw.orderNumber ?? raw.order_number),
     patientId:   str(raw.labPatientId ?? raw.lab_patient_id ?? raw["Patient Id"]),
     labId:       extractLabId(raw),
+    orgId:       extractOrgId(raw),
     status:      str(raw.Status ?? raw.status),
     testIds:     extractTestIds(raw),
     reportUrl:   extractReportUrl(raw),
@@ -172,8 +185,10 @@ export async function processWebhook(raw: CrelioWebhookPayload): Promise<{ skipp
     .from("order_events").select("id").eq("idempotency_key", idempotencyKey).maybeSingle();
   if (dup) return { skipped: "already processed" };
 
-  const centreId = labIdToCentre(p.labId);
-  if (!centreId) return { skipped: `unknown labId: ${p.labId}` };
+  // Map to a centre by labId, falling back to orgId — Crelio's real webhooks may
+  // carry an internal labId distinct from the account/org id we key centres on.
+  const centreId = labIdToCentre(p.labId) ?? labIdToCentre(p.orgId);
+  if (!centreId) return { skipped: `unknown labId/orgId: ${p.labId}/${p.orgId}` };
 
   // Create the order if we've never seen this bill (forward mirror of walk-ins)
   const order = await ensureOrder(p, centreId);
