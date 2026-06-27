@@ -2,15 +2,16 @@ import { useShow, useList, useInvalidate } from "@refinedev/core";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
   Card, Descriptions, Table, Tag, Button, Space, Typography,
-  Upload, message, Timeline, Tooltip,
+  Upload, message, Timeline, Tooltip, Popconfirm,
 } from "antd";
 import {
   ArrowLeftOutlined, LinkOutlined, UploadOutlined, CheckCircleOutlined, ReloadOutlined,
+  StopOutlined, CheckOutlined,
 } from "@ant-design/icons";
 import { useState } from "react";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { supabaseClient } from "../../lib/supabase";
-import { syncBill } from "../../lib/api";
+import { syncBill, billAction } from "../../lib/api";
 
 const STATUS_COLOR: Record<string, string> = {
   booked: "blue",
@@ -125,6 +126,25 @@ export function BillShow() {
     }
   }
 
+  const [acting, setActing] = useState(false);
+  async function runBillAction(op: "cancel" | "complete", okMsg: string) {
+    if (!order?.crelio_bill_id || !order?.centre_id) {
+      message.warning("This bill has no Crelio bill ID.");
+      return;
+    }
+    setActing(true);
+    try {
+      await billAction(op, { centre: order.centre_id, billId: order.crelio_bill_id });
+      message.success(okMsg);
+      invalidate({ resource: "order_items", invalidates: ["list"] });
+      invalidate({ resource: "orders", invalidates: ["detail"] });
+    } catch (err: any) {
+      message.error(err?.message ?? "Action failed");
+    } finally {
+      setActing(false);
+    }
+  }
+
   async function handleUpload(options: UploadRequestOption, itemId: string) {
     const file = options.file as File;
     const path = `${id}/${itemId}/${file.name}`;
@@ -175,14 +195,17 @@ export function BillShow() {
           </Typography.Text>
         )}
         {order?.crelio_bill_id && (
-          <Button
-            size="small"
-            icon={<ReloadOutlined />}
-            loading={refreshing}
-            onClick={refreshFromCrelio}
-          >
-            Refresh from Crelio
-          </Button>
+          <>
+            <Button size="small" icon={<ReloadOutlined />} loading={refreshing} onClick={refreshFromCrelio}>
+              Refresh from Crelio
+            </Button>
+            <Popconfirm title="Mark this bill complete in Crelio?" onConfirm={() => runBillAction("complete", "Bill marked complete")}>
+              <Button size="small" icon={<CheckOutlined />} loading={acting}>Complete</Button>
+            </Popconfirm>
+            <Popconfirm title="Cancel this entire bill in Crelio?" okText="Cancel bill" okButtonProps={{ danger: true }} onConfirm={() => runBillAction("cancel", "Bill cancelled")}>
+              <Button size="small" danger icon={<StopOutlined />} loading={acting}>Cancel Bill</Button>
+            </Popconfirm>
+          </>
         )}
       </Space>
 

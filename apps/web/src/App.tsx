@@ -20,6 +20,7 @@ import { PatientShow } from "./pages/patients/show";
 import { BillList } from "./pages/bills/list";
 import { BillShow } from "./pages/bills/show";
 import { TestList } from "./pages/tests/list";
+import { BookingNew } from "./pages/bookings/new";
 
 export default function App() {
   return (
@@ -69,6 +70,7 @@ export default function App() {
               <Route path="/patients" element={<PatientList />} />
               <Route path="/patients/:mobile" element={<PatientShow />} />
               <Route path="/bills" element={<BillList />} />
+              <Route path="/bills/new" element={<BookingNew />} />
               <Route path="/bills/:id" element={<BillShow />} />
               <Route path="/tests" element={<TestList />} />
             </Route>

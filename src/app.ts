@@ -6,6 +6,7 @@ import webhookRoute   from "./routes/webhook";
 import bookingsRoute  from "./routes/bookings";
 import catalogueRoute from "./routes/catalogue";
 import syncRoute      from "./routes/sync";
+import actionsRoute   from "./routes/actions";
 
 const app = new Hono();
 
@@ -18,5 +19,6 @@ app.route("/webhook",   webhookRoute);
 app.route("/bookings",  bookingsRoute);
 app.route("/catalogue", catalogueRoute);
 app.route("/sync",      syncRoute);
+app.route("/actions",   actionsRoute);
 
 export default app;

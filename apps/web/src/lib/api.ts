@@ -8,17 +8,57 @@ export interface SyncBillResult {
   tests: number;
 }
 
-// Refresh one bill's status from Crelio (getOrderStatusAPI). Crelio has no
-// list/search API, so refresh is always per-known-bill.
-export async function syncBill(billId: string, centre: string): Promise<SyncBillResult> {
-  const res = await fetch("/sync/bill", {
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ billId, centre }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? `Crelio refresh failed (HTTP ${res.status})`);
+    const b = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(b.error ?? `Request failed (HTTP ${res.status})`);
   }
-  return (await res.json()) as SyncBillResult;
+  return (await res.json()) as T;
+}
+
+// Refresh one bill's status from Crelio (getOrderStatusAPI). Crelio has no
+// list/search API, so refresh is always per-known-bill.
+export function syncBill(billId: string, centre: string) {
+  return postJson<SyncBillResult>("/sync/bill", { billId, centre });
+}
+
+// ── Bookings + bill actions (live Crelio write APIs) ─────────────────────────
+
+export interface BookingPayload {
+  centreId: string;
+  channel: "d2c" | "corporate" | "walkin";
+  organizationIdLH?: number;
+  patient: { name: string; mobile?: string; age: number; gender: "M" | "F" | "O"; email?: string; city?: string; dob?: string };
+  tests: Array<{ crelioTestId: string; testName: string }>;
+  payment: { totalAmount: number; advance?: number; paymentType: "Cash" | "Online" | "Credit" };
+  referralName?: string;
+  comments?: string;
+  appointment?: { startDate: string; endDate: string };
+  homeCollection?: { dateTime: string; address: string; location?: string };
+}
+
+export interface BookingResult {
+  ok: boolean;
+  orderId: string;
+  orderNumber: string;
+  crelioBillId: string;
+  crelioPatientId: string;
+  appointmentId: string | null;
+}
+
+export function createBooking(payload: BookingPayload) {
+  return postJson<BookingResult>("/bookings", payload);
+}
+
+// Per-bill actions → /actions/*
+export function billAction(
+  op: "complete" | "cancel" | "payment" | "add-test" | "test-cancel",
+  body: Record<string, unknown>,
+) {
+  return postJson<{ ok: boolean; result: unknown }>(`/actions/bill/${op}`, body);
 }

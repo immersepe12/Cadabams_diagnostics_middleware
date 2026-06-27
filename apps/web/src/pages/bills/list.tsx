@@ -1,6 +1,6 @@
 import { useTable, List } from "@refinedev/antd";
-import { Table, Tag, Input, Select, Row, Col, Space } from "antd";
-import { SearchOutlined } from "@ant-design/icons";
+import { Table, Tag, Input, Select, Row, Col, Space, Button } from "antd";
+import { SearchOutlined, PlusOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import type { CrudFilters } from "@refinedev/core";
 
@@ -68,7 +68,14 @@ export function BillList() {
   }
 
   return (
-    <List title="Bills">
+    <List
+      title="Bills"
+      headerButtons={
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate("/bills/new")}>
+          New Booking
+        </Button>
+      }
+    >
       <Row gutter={8} style={{ marginBottom: 16 }}>
         <Col>
           <Input.Search
