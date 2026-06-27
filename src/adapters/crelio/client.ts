@@ -64,3 +64,21 @@ export async function crelioPost<T>(centreId: CentreId, path: string, body: unkn
 
   return res.json() as Promise<T>;
 }
+
+// Org/Referral list endpoints authenticate via a multipart `tokenObj` form field
+// ({token, lastUpdatedTime}) instead of a token in the path.
+export async function crelioPostForm<T>(
+  centreId: CentreId,
+  path: string,
+  fields: Record<string, unknown> = {},
+): Promise<T> {
+  const token = getToken(centreId);
+  const form = new FormData();
+  form.append("tokenObj", JSON.stringify({ token, lastUpdatedTime: "2020-01-01T00:00:00Z", ...fields }));
+
+  const res = await fetch(`${BASE_URL}${path}`, { method: "POST", body: form });
+  if (!res.ok) {
+    throw new Error(`Crelio POST ${path} failed: ${res.status} ${await res.text()}`);
+  }
+  return res.json() as Promise<T>;
+}

@@ -6,7 +6,7 @@ import {
 } from "antd";
 import { ArrowLeftOutlined } from "@ant-design/icons";
 import { supabaseClient } from "../../lib/supabase";
-import { createBooking, type BookingPayload } from "../../lib/api";
+import { createBooking, fetchOrganizations, type BookingPayload, type CrelioOrg } from "../../lib/api";
 
 const CENTRES = [
   { value: "KYL", label: "Kalyan Nagar" },
@@ -23,10 +23,22 @@ export function BookingNew() {
   const [submitting, setSubmitting] = useState(false);
   const [testOpts, setTestOpts] = useState<TestOpt[]>([]);
   const [loadingTests, setLoadingTests] = useState(false);
+  const [orgs, setOrgs] = useState<CrelioOrg[]>([]);
+  const [loadingOrgs, setLoadingOrgs] = useState(false);
 
   const centre = Form.useWatch("centreId", form);
   const channel = Form.useWatch("channel", form);
   const mode = Form.useWatch("mode", form);
+
+  // Load corporate orgs when a corporate booking at a centre is selected
+  useEffect(() => {
+    if (channel !== "corporate" || !centre) { setOrgs([]); return; }
+    setLoadingOrgs(true);
+    fetchOrganizations(centre)
+      .then((o) => setOrgs(o))
+      .catch(() => setOrgs([]))
+      .finally(() => setLoadingOrgs(false));
+  }, [channel, centre]);
 
   // Load this centre's catalogue as test options
   useEffect(() => {
@@ -123,8 +135,17 @@ export function BookingNew() {
             </Col>
           </Row>
           {channel === "corporate" && (
-            <Form.Item name="organizationIdLH" label="Crelio Organization ID" extra="Applies the corporate rate list; bill goes to CREDIT.">
-              <InputNumber style={{ width: 240 }} placeholder="organizationIdLH" />
+            <Form.Item name="organizationIdLH" label="Corporate organization" extra="Applies the corporate rate list; bill goes to CREDIT." rules={[{ required: true, message: "Pick the corporate organization" }]}>
+              <Select
+                showSearch
+                loading={loadingOrgs}
+                disabled={!centre}
+                placeholder={centre ? "Search organizations…" : "Select a centre first"}
+                optionFilterProp="label"
+                style={{ maxWidth: 420 }}
+                options={orgs.map((o) => ({ value: o.orgId, label: o.code ? `${o.name} (${o.code})` : o.name }))}
+                notFoundContent={loadingOrgs ? "Loading…" : "No organizations"}
+              />
             </Form.Item>
           )}
         </Card>

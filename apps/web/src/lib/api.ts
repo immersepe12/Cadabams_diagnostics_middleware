@@ -62,3 +62,15 @@ export function billAction(
 ) {
   return postJson<{ ok: boolean; result: unknown }>(`/actions/bill/${op}`, body);
 }
+
+export interface CrelioOrg { orgId: number; name: string; code: string | null; city: string | null }
+
+// Corporate orgs for a centre (live Crelio Organization List)
+export async function fetchOrganizations(centre: string): Promise<CrelioOrg[]> {
+  const res = await fetch(`/data/organizations/${centre}`);
+  if (!res.ok) {
+    const b = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(b.error ?? `Failed to load organizations (HTTP ${res.status})`);
+  }
+  return (await res.json()).organizations ?? [];
+}

@@ -76,6 +76,7 @@ await writeFile(
       { src: "^/catalogue(/.*)?$",  dest: "/index" },
       { src: "^/sync(/.*)?$",       dest: "/index" },
       { src: "^/actions(/.*)?$",    dest: "/index" },
+      { src: "^/data(/.*)?$",       dest: "/index" },
       // Bare "/" is intercepted by the filesystem handler and 404s before the
       // SPA fallback below — rewrite it to index.html up front. (Sub-routes
       // like /bills already fall through to the wildcard.)

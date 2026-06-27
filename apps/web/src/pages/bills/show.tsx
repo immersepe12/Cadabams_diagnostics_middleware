@@ -2,13 +2,13 @@ import { useShow, useList, useInvalidate } from "@refinedev/core";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import {
   Card, Descriptions, Table, Tag, Button, Space, Typography,
-  Upload, message, Timeline, Tooltip, Popconfirm,
+  Upload, message, Timeline, Tooltip, Popconfirm, Modal, Form, InputNumber, Select,
 } from "antd";
 import {
   ArrowLeftOutlined, LinkOutlined, UploadOutlined, CheckCircleOutlined, ReloadOutlined,
-  StopOutlined, CheckOutlined,
+  StopOutlined, CheckOutlined, PlusOutlined, DollarOutlined,
 } from "@ant-design/icons";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { supabaseClient } from "../../lib/supabase";
 import { syncBill, billAction } from "../../lib/api";
@@ -145,6 +145,62 @@ export function BillShow() {
     }
   }
 
+  // ── Add Test / Payment modals ─────────────────────────────────────────────
+  const [addOpen, setAddOpen] = useState(false);
+  const [payOpen, setPayOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [testOpts, setTestOpts] = useState<{ value: string; label: string }[]>([]);
+  const [addForm] = Form.useForm();
+  const [payForm] = Form.useForm();
+
+  // Load this centre's catalogue for the Add Test picker
+  useEffect(() => {
+    if (!addOpen || !order?.centre_id) return;
+    supabaseClient
+      .from("catalogue_tests")
+      .select("crelio_test_id, test_name")
+      .eq("centre_id", order.centre_id)
+      .order("test_name")
+      .limit(5000)
+      .then(({ data }) =>
+        setTestOpts((data ?? []).map((t) => ({ value: t.crelio_test_id as string, label: t.test_name as string }))),
+      );
+  }, [addOpen, order?.centre_id]);
+
+  async function submitAddTest() {
+    const v = await addForm.validateFields();
+    const labelOf = new Map(testOpts.map((o) => [o.value, o.label]));
+    setBusy(true);
+    try {
+      await billAction("add-test", {
+        centre: order!.centre_id,
+        billId: order!.crelio_bill_id,
+        tests: (v.tests as string[]).map((id) => ({ crelioTestId: id, testName: labelOf.get(id) ?? id })),
+      });
+      message.success("Test(s) added");
+      setAddOpen(false); addForm.resetFields();
+      invalidate({ resource: "order_items", invalidates: ["list"] });
+    } catch (err: any) {
+      message.error(err?.message ?? "Add test failed");
+    } finally { setBusy(false); }
+  }
+
+  async function submitPayment() {
+    const v = await payForm.validateFields();
+    setBusy(true);
+    try {
+      await billAction("payment", {
+        centre: order!.centre_id,
+        billId: order!.crelio_bill_id,
+        payments: [{ paymentMode: v.paymentMode, amount: Number(v.amount) }],
+      });
+      message.success("Payment recorded");
+      setPayOpen(false); payForm.resetFields();
+    } catch (err: any) {
+      message.error(err?.message ?? "Payment failed");
+    } finally { setBusy(false); }
+  }
+
   async function handleUpload(options: UploadRequestOption, itemId: string) {
     const file = options.file as File;
     const path = `${id}/${itemId}/${file.name}`;
@@ -199,6 +255,8 @@ export function BillShow() {
             <Button size="small" icon={<ReloadOutlined />} loading={refreshing} onClick={refreshFromCrelio}>
               Refresh from Crelio
             </Button>
+            <Button size="small" icon={<PlusOutlined />} onClick={() => setAddOpen(true)}>Add Test</Button>
+            <Button size="small" icon={<DollarOutlined />} onClick={() => setPayOpen(true)}>Payment</Button>
             <Popconfirm title="Mark this bill complete in Crelio?" onConfirm={() => runBillAction("complete", "Bill marked complete")}>
               <Button size="small" icon={<CheckOutlined />} loading={acting}>Complete</Button>
             </Popconfirm>
@@ -363,6 +421,52 @@ export function BillShow() {
           />
         </Card>
       )}
+
+      {/* Add Test modal */}
+      <Modal
+        title="Add test to bill"
+        open={addOpen}
+        onCancel={() => setAddOpen(false)}
+        onOk={submitAddTest}
+        okText="Add to Crelio bill"
+        confirmLoading={busy}
+      >
+        <Form form={addForm} layout="vertical">
+          <Form.Item name="tests" label="Tests / profiles" rules={[{ required: true, message: "Pick at least one" }]}>
+            <Select
+              mode="multiple"
+              showSearch
+              placeholder="Search the catalogue…"
+              options={testOpts}
+              optionFilterProp="label"
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Payment modal */}
+      <Modal
+        title="Record payment"
+        open={payOpen}
+        onCancel={() => setPayOpen(false)}
+        onOk={submitPayment}
+        okText="Record in Crelio"
+        confirmLoading={busy}
+      >
+        <Form form={payForm} layout="vertical" initialValues={{ paymentMode: "Cash" }}>
+          <Form.Item name="amount" label="Amount" rules={[{ required: true }]}>
+            <InputNumber style={{ width: "100%" }} min={1} prefix="₹" />
+          </Form.Item>
+          <Form.Item name="paymentMode" label="Mode">
+            <Select options={[
+              { value: "Cash", label: "Cash" },
+              { value: "Online", label: "Online" },
+              { value: "Card", label: "Card" },
+              { value: "UPI", label: "UPI" },
+            ]} />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   );
 }
