@@ -1,7 +1,9 @@
-import { useList } from "@refinedev/core";
+import { useList, useInvalidate } from "@refinedev/core";
 import { useParams, useNavigate } from "react-router-dom";
-import { Card, Table, Tag, Button, Space, Typography, Descriptions } from "antd";
-import { ArrowLeftOutlined } from "@ant-design/icons";
+import { Card, Table, Tag, Button, Space, Typography, Descriptions, message } from "antd";
+import { ArrowLeftOutlined, ReloadOutlined } from "@ant-design/icons";
+import { useEffect, useState } from "react";
+import { syncPatient } from "../../lib/api";
 
 const STATUS_COLOR: Record<string, string> = {
   booked: "blue",
@@ -46,6 +48,8 @@ type Bill = {
 export function PatientShow() {
   const { mobile } = useParams<{ mobile: string }>();
   const navigate = useNavigate();
+  const invalidate = useInvalidate();
+  const [refreshing, setRefreshing] = useState(false);
 
   const { data, isLoading } = useList<Bill>({
     resource: "orders",
@@ -55,6 +59,26 @@ export function PatientShow() {
     meta: { select: "*, centres(display_name), order_items(status)" },
     queryOptions: { enabled: !!mobile },
   });
+
+  // Pull the latest from Crelio so the page is fresh, then re-read from Supabase.
+  // Cached data renders immediately while this runs (stale-while-revalidate).
+  async function refreshFromCrelio(silent = false) {
+    if (!mobile) return;
+    setRefreshing(true);
+    try {
+      await syncPatient(mobile);
+      invalidate({ resource: "orders", invalidates: ["list"] });
+    } catch (err: any) {
+      if (!silent) message.error(err?.message ?? "Crelio refresh failed");
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  useEffect(() => {
+    refreshFromCrelio(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mobile]);
 
   const bills = data?.data ?? [];
   const first = bills[0];
@@ -66,6 +90,14 @@ export function PatientShow() {
         <Typography.Title level={4} style={{ margin: 0 }}>
           {first?.patient_name ?? mobile}
         </Typography.Title>
+        <Button
+          size="small"
+          icon={<ReloadOutlined />}
+          loading={refreshing}
+          onClick={() => refreshFromCrelio(false)}
+        >
+          Refresh from Crelio
+        </Button>
       </Space>
 
       <Card style={{ marginBottom: 16 }}>

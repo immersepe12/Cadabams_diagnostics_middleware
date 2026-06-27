@@ -1,15 +1,9 @@
-import { useList } from "@refinedev/core";
-import { List } from "@refinedev/antd";
-import { Table, Input, Button, Space } from "antd";
-import { SearchOutlined, UserOutlined } from "@ant-design/icons";
+import { useTable, List } from "@refinedev/antd";
+import { Table, Input, Button, Space, Alert, message } from "antd";
+import { SearchOutlined, UserOutlined, CloudDownloadOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
-import { useMemo, useState } from "react";
-
-type Order = {
-  patient_mobile: string;
-  patient_name: string | null;
-  created_at: string;
-};
+import { useState } from "react";
+import { syncPatient } from "../../lib/api";
 
 type Patient = {
   mobile: string;
@@ -20,75 +14,95 @@ type Patient = {
 
 function fmtDate(v: string) {
   return new Intl.DateTimeFormat("en-IN", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
+    day: "2-digit", month: "short", year: "numeric",
   }).format(new Date(v));
 }
 
 export function PatientList() {
   const navigate = useNavigate();
-  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState("");
+  const [pulling, setPulling] = useState(false);
 
-  const { data, isLoading } = useList<Order>({
-    resource: "orders",
-    pagination: { pageSize: 9999 },
-    meta: { select: "patient_mobile, patient_name, created_at" },
+  // Reads the `patients` SQL view (orders grouped by phone) — server-paginated.
+  const { tableProps, setFilters } = useTable<Patient>({
+    resource: "patients",
+    pagination: { pageSize: 25 },
+    sorters: { initial: [{ field: "last_visit", order: "desc" }] },
   });
 
-  const patients: Patient[] = useMemo(() => {
-    const map = new Map<string, Patient>();
-    for (const o of data?.data ?? []) {
-      if (!o.patient_mobile) continue;
-      const existing = map.get(o.patient_mobile);
-      if (!existing) {
-        map.set(o.patient_mobile, {
-          mobile: o.patient_mobile,
-          name: o.patient_name,
-          bill_count: 1,
-          last_visit: o.created_at,
-        });
-      } else {
-        existing.bill_count++;
-        if (o.created_at > existing.last_visit) {
-          existing.last_visit = o.created_at;
-          if (o.patient_name && !existing.name) existing.name = o.patient_name;
-        }
-      }
-    }
-    return Array.from(map.values()).sort(
-      (a, b) => b.last_visit.localeCompare(a.last_visit)
+  function applySearch(val: string) {
+    setQuery(val);
+    setFilters(
+      val
+        ? [{
+            operator: "or",
+            value: [
+              { field: "mobile", operator: "contains", value: val },
+              { field: "name", operator: "contains", value: val },
+            ],
+          }]
+        : [],
+      "replace",
     );
-  }, [data?.data]);
+  }
 
-  const filtered = useMemo(() => {
-    if (!search) return patients;
-    const q = search.toLowerCase();
-    return patients.filter(
-      (p) =>
-        p.mobile.includes(q) ||
-        (p.name ?? "").toLowerCase().includes(q)
-    );
-  }, [patients, search]);
+  // On-demand pull: fetch this phone's bills from Crelio, then open the patient.
+  async function pullFromCrelio() {
+    const phone = query.replace(/\D/g, "");
+    if (phone.length < 10) {
+      message.warning("Enter a 10-digit phone number to pull from Crelio");
+      return;
+    }
+    setPulling(true);
+    try {
+      const res = await syncPatient(phone);
+      if (res.synced > 0) {
+        message.success(`Pulled ${res.synced} bill(s) from Crelio`);
+        navigate(`/patients/${phone}`);
+      } else {
+        message.info("No bills found for this number in Crelio");
+      }
+    } catch (err: any) {
+      message.error(err?.message ?? "Crelio lookup failed");
+    } finally {
+      setPulling(false);
+    }
+  }
 
   return (
-    <List title={`Patients (${patients.length})`}>
-      <Input.Search
-        placeholder="Name or mobile"
-        prefix={<SearchOutlined />}
-        style={{ width: 260, marginBottom: 16 }}
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        allowClear
+    <List title="Patients">
+      <Alert
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+        message="This list shows patients already pulled into the dashboard. To add a new patient, enter their phone and click “Pull from Crelio”."
       />
 
-      <Table
-        dataSource={filtered}
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input
+          placeholder="Name or mobile"
+          prefix={<SearchOutlined />}
+          style={{ width: 260 }}
+          value={query}
+          onChange={(e) => applySearch(e.target.value)}
+          allowClear
+        />
+        <Button
+          icon={<CloudDownloadOutlined />}
+          loading={pulling}
+          onClick={pullFromCrelio}
+        >
+          Pull from Crelio
+        </Button>
+      </Space>
+
+      <Table<Patient>
+        {...tableProps}
         rowKey="mobile"
-        loading={isLoading}
         size="small"
         onRow={(row) => ({ onClick: () => navigate(`/patients/${row.mobile}`) })}
-        pagination={{ showSizeChanger: true, showTotal: (t) => `${t} patients` }}
+        style={{ cursor: "pointer" }}
+        pagination={{ ...tableProps.pagination, showSizeChanger: true, showTotal: (t) => `${t} patients` }}
       >
         <Table.Column<Patient>
           title="Patient"
@@ -107,13 +121,14 @@ export function PatientList() {
           title="Bills"
           width={80}
           align="center"
+          sorter
         />
         <Table.Column<Patient>
           dataIndex="last_visit"
           title="Last Visit"
           width={130}
           render={(v: string) => fmtDate(v)}
-          sorter={(a, b) => a.last_visit.localeCompare(b.last_visit)}
+          sorter
           defaultSortOrder="descend"
         />
         <Table.Column<Patient>

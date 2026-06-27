@@ -3,8 +3,13 @@ import { crelioGet } from "./client";
 import { mapCrelioStatus } from "../../domain/state-machine";
 import type { CentreId } from "./types";
 
-// ── Types for Crelio bill list / detail responses ────────────────────────────
-// Crelio's bill listing API uses DD-MM-YYYY dates and inconsistent key names.
+// Demand-driven mirror: we do NOT bulk-import history. When ops looks a patient
+// up by phone, we pull that one patient's bills from all four Crelio centres and
+// upsert them. Webhooks then keep those mirrored patients fresh going forward.
+
+const CENTRES: CentreId[] = ["KYL", "JNR", "KKP", "BSK"];
+
+// ── Crelio response shapes (mixed casing/spacing — normalise on read) ────────
 
 interface CrelioBillSummary {
   billId?: string;
@@ -25,7 +30,6 @@ interface CrelioBillSummary {
   gender?: string;
   labPatientId?: string;
   lab_patient_id?: string;
-  labId?: string | number;
   [key: string]: unknown;
 }
 
@@ -48,18 +52,16 @@ interface CrelioTestInBill {
   [key: string]: unknown;
 }
 
-// ── Date helpers ──────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-// Crelio expects DD-MM-YYYY in some endpoints
-function toCrelioDDMMYYYY(iso: string): string {
-  const [y, m, d] = iso.split("-");
-  return `${d}-${m}-${y}`;
+function billIdOf(bill: CrelioBillSummary): string {
+  return String(bill.billId ?? bill.bill_id ?? bill.billNo ?? "").trim();
 }
 
-function parseCrelioBillDate(v: string | undefined): string | null {
+function parseCrelioDate(v: string | undefined): string | null {
   if (!v) return null;
-  // Try DD-MM-YYYY first, then YYYY-MM-DD, then ISO
-  const ddmm = /^(\d{2})-(\d{2})-(\d{4})$/.exec(v);
+  // DD-MM-YYYY → ISO; otherwise let Date try
+  const ddmm = /^(\d{2})-(\d{2})-(\d{4})/.exec(v);
   if (ddmm) return new Date(`${ddmm[3]}-${ddmm[2]}-${ddmm[1]}`).toISOString();
   const dt = new Date(v);
   return isNaN(dt.getTime()) ? null : dt.toISOString();
@@ -75,37 +77,18 @@ function extractReportUrl(test: CrelioTestInBill): string | null {
   return test.reportURL ?? test.report_url ?? null;
 }
 
-// ── Crelio bill-list API ──────────────────────────────────────────────────────
-// Endpoint: GET /getAllBillsListing/?startDate=DD-MM-YYYY&endDate=DD-MM-YYYY&page=N
-// Adjust the path below if Crelio uses a different endpoint name.
+// ── Crelio reads ──────────────────────────────────────────────────────────────
+// ⚠️ ENDPOINT PATHS UNVERIFIED — confirm exact path + params with the Crelio
+// account manager / docs portal (https://api.creliohealth.com/). Parsing below
+// is deliberately tolerant of wrapper shapes (.data / .bills / bare array).
 
-async function fetchBillPage(
-  centreId: CentreId,
-  startDate: string, // YYYY-MM-DD
-  endDate: string,   // YYYY-MM-DD
-  page: number,
-): Promise<{ bills: CrelioBillSummary[]; hasMore: boolean }> {
-  const sd = toCrelioDDMMYYYY(startDate);
-  const ed = toCrelioDDMMYYYY(endDate);
-
+async function fetchBillsByMobile(centreId: CentreId, phone: string): Promise<CrelioBillSummary[]> {
   const raw = await crelioGet<any>(
     centreId,
-    `/getAllBillsListing/?startDate=${sd}&endDate=${ed}&page=${page}&pageSize=50`,
+    `/getBillsByMobileNumber/?mobileNumber=${encodeURIComponent(phone)}`,
   );
-
-  // Crelio may wrap results in .data, .bills, .list, or return the array directly
-  const bills: CrelioBillSummary[] =
-    raw?.data?.bills ?? raw?.data ?? raw?.bills ?? raw?.list ?? (Array.isArray(raw) ? raw : []);
-
-  // hasMore: if we got a full page (50) assume there may be more
-  const hasMore = bills.length === 50;
-
-  return { bills, hasMore };
+  return raw?.data?.bills ?? raw?.data ?? raw?.bills ?? raw?.list ?? (Array.isArray(raw) ? raw : []);
 }
-
-// ── Crelio bill-detail API ────────────────────────────────────────────────────
-// Endpoint: GET /getPatientBillDetails/?billId=ID
-// Returns the tests (with statuses and report URLs) for one bill.
 
 async function fetchBillTests(centreId: CentreId, billId: string): Promise<CrelioTestInBill[]> {
   const raw = await crelioGet<any>(centreId, `/getPatientBillDetails/?billId=${billId}`);
@@ -113,75 +96,65 @@ async function fetchBillTests(centreId: CentreId, billId: string): Promise<Creli
   return data?.tests ?? data?.testDetails ?? data?.test_details ?? [];
 }
 
-// ── Upsert helpers ───────────────────────────────────────────────────────────
+// ── Upserts ───────────────────────────────────────────────────────────────────
 
 async function upsertOrder(
   centreId: CentreId,
   bill: CrelioBillSummary,
+  fallbackPhone: string,
 ): Promise<string | null> {
-  const billId = String(bill.billId ?? bill.bill_id ?? bill.billNo ?? "").trim();
+  const billId = billIdOf(bill);
   if (!billId) return null;
 
   const patientName   = String(bill.patientName ?? bill.patient_name ?? "").trim() || null;
-  const patientMobile = String(bill.patientMobile ?? bill.patient_mobile ?? bill.mobileNo ?? "").trim() || null;
+  const patientMobile = String(bill.patientMobile ?? bill.patient_mobile ?? bill.mobileNo ?? fallbackPhone).trim() || null;
   const patientAge    = Number(bill.patientAge ?? bill.patient_age ?? bill.age ?? 0) || null;
   const patientGender = String(bill.patientGender ?? bill.patient_gender ?? bill.gender ?? "").trim().toUpperCase();
   const labPatientId  = String(bill.labPatientId ?? bill.lab_patient_id ?? "").trim() || null;
-  const billDate      = parseCrelioBillDate(String(bill.billDate ?? bill.bill_date ?? ""));
-
-  // Generate a deterministic order_number so we never create duplicates on re-sync
-  const orderNumber = `CRELIO-${centreId}-${billId}`;
+  const billDate      = parseCrelioDate(String(bill.billDate ?? bill.bill_date ?? ""));
 
   const { data, error } = await supabase
     .from("orders")
     .upsert({
-      order_number:       orderNumber,
-      centre_id:          centreId,
-      channel:            "d2c",
-      patient_name:       patientName,
-      patient_mobile:     patientMobile,
-      patient_age:        patientAge,
-      patient_gender:     ["M", "F", "O"].includes(patientGender) ? patientGender : null,
-      crelio_bill_id:     billId,
-      crelio_patient_id:  labPatientId,
+      order_number:      `CRELIO-${centreId}-${billId}`, // deterministic → no dup on re-sync
+      centre_id:         centreId,
+      channel:           "d2c",
+      patient_name:      patientName,
+      patient_mobile:    patientMobile,
+      patient_age:       patientAge,
+      patient_gender:    ["M", "F", "O"].includes(patientGender) ? patientGender : null,
+      crelio_bill_id:    billId,
+      crelio_patient_id: labPatientId,
       ...(billDate ? { created_at: billDate } : {}),
-    }, { onConflict: "crelio_bill_id", ignoreDuplicates: false })
+    }, { onConflict: "crelio_bill_id" })
     .select("id")
     .single();
 
   if (error) {
-    console.error(`upsertOrder failed for ${centreId} bill ${billId}:`, error.message);
+    console.error(`upsertOrder failed (${centreId} bill ${billId}):`, error.message);
     return null;
   }
   return data.id;
 }
 
-async function upsertTests(orderId: string, centreId: CentreId, tests: CrelioTestInBill[]) {
+async function upsertTests(orderId: string, tests: CrelioTestInBill[]) {
   for (const test of tests) {
     const testId = String(test.testId ?? test.test_id ?? test.testCode ?? test.test_code ?? "").trim();
     if (!testId) continue;
 
-    const testName  = String(test.testName ?? test.test_name ?? testId).trim();
-    const mapping   = mapCrelioStatus(String(test.status ?? ""));
-    const reportUrl = extractReportUrl(test);
-    const isAmended = test.is_amended === 1 || test.is_amended === true;
-
-    const collectedAt = parseCrelioBillDate(
-      String(test.sampleCollectedDate ?? test.sample_collected_date ?? ""),
-    );
-    const reportedAt = parseCrelioBillDate(
-      String(test.reportDate ?? test.report_date ?? ""),
-    );
+    const mapping     = mapCrelioStatus(String(test.status ?? ""));
+    const collectedAt = parseCrelioDate(String(test.sampleCollectedDate ?? test.sample_collected_date ?? ""));
+    const reportedAt  = parseCrelioDate(String(test.reportDate ?? test.report_date ?? ""));
 
     await supabase.from("order_items").upsert(
       {
         order_id:       orderId,
         crelio_test_id: testId,
-        unified_code:   testId, // will be refined when catalogue sync runs
-        test_name:      testName,
+        unified_code:   testId, // refined later by catalogue sync
+        test_name:      String(test.testName ?? test.test_name ?? testId).trim(),
         status:         mapping?.orderItemStatus ?? "booked",
-        report_url:     reportUrl || null,
-        is_amended:     isAmended,
+        report_url:     extractReportUrl(test) || null,
+        is_amended:     test.is_amended === 1 || test.is_amended === true,
         ...(collectedAt ? { collected_at: collectedAt } : {}),
         ...(reportedAt  ? { reported_at:  reportedAt }  : {}),
       },
@@ -192,66 +165,43 @@ async function upsertTests(orderId: string, centreId: CentreId, tests: CrelioTes
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export interface SyncBillsResult {
-  synced: number;
-  skipped: number;
+export interface SyncPatientResult {
+  phone: string;
+  synced: number;                       // bills upserted
   errors: number;
+  perCentre: Record<string, number>;    // bills found per centre (-1 = centre call failed)
 }
 
-export async function syncBillsForCentre(
-  centreId: CentreId,
-  startDate: string, // YYYY-MM-DD
-  endDate: string,   // YYYY-MM-DD
-): Promise<SyncBillsResult> {
-  let synced = 0, skipped = 0, errors = 0;
-  let page = 1;
-  let hasMore = true;
-
-  while (hasMore) {
-    const { bills, hasMore: more } = await fetchBillPage(centreId, startDate, endDate, page);
-    hasMore = more;
-    page++;
-
-    for (const bill of bills) {
-      const billId = String(bill.billId ?? bill.bill_id ?? bill.billNo ?? "").trim();
-      if (!billId) { skipped++; continue; }
-
-      const orderId = await upsertOrder(centreId, bill);
-      if (!orderId) { errors++; continue; }
-
-      try {
-        const tests = await fetchBillTests(centreId, billId);
-        await upsertTests(orderId, centreId, tests);
-        synced++;
-      } catch (err: any) {
-        console.error(`fetchBillTests failed for ${centreId}/${billId}:`, err?.message ?? err);
-        // Order is saved even if tests fail
-        synced++;
-        errors++;
-      }
-    }
-  }
-
-  return { synced, skipped, errors };
-}
-
-export async function syncBillsAllCentres(
-  startDate: string,
-  endDate: string,
-): Promise<Record<CentreId, SyncBillsResult>> {
-  const centres: CentreId[] = ["KYL", "JNR", "KKP", "BSK"];
-  const results = {} as Record<CentreId, SyncBillsResult>;
+export async function syncPatientByPhone(phone: string): Promise<SyncPatientResult> {
+  const clean = phone.replace(/\D/g, "");
+  let synced = 0, errors = 0;
+  const perCentre: Record<string, number> = {};
 
   await Promise.all(
-    centres.map(async (centreId) => {
+    CENTRES.map(async (centreId) => {
       try {
-        results[centreId] = await syncBillsForCentre(centreId, startDate, endDate);
+        const bills = await fetchBillsByMobile(centreId, clean);
+        let n = 0;
+        for (const bill of bills) {
+          const orderId = await upsertOrder(centreId, bill, clean);
+          if (!orderId) { errors++; continue; }
+          try {
+            const tests = await fetchBillTests(centreId, billIdOf(bill));
+            await upsertTests(orderId, tests);
+          } catch (err: any) {
+            console.error(`fetchBillTests failed (${centreId}/${billIdOf(bill)}):`, err?.message ?? err);
+            errors++;
+          }
+          n++; synced++;
+        }
+        perCentre[centreId] = n;
       } catch (err: any) {
-        console.error(`syncBillsForCentre failed for ${centreId}:`, err?.message ?? err);
-        results[centreId] = { synced: 0, skipped: 0, errors: -1 };
+        console.error(`fetchBillsByMobile failed (${centreId}):`, err?.message ?? err);
+        perCentre[centreId] = -1;
+        errors++;
       }
     }),
   );
 
-  return results;
+  return { phone: clean, synced, errors, perCentre };
 }
