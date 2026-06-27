@@ -23,7 +23,7 @@ export interface BookingInput {
     labPatientId?: string;       // set → reuse this existing Crelio patient
     patientId?: string;
   };
-  tests: Array<{ crelioTestId: string; testName: string; testCode?: string }>;
+  tests: Array<{ crelioTestId: string; testName: string; testCode?: string; price?: number }>;
   payment: {
     totalAmount: number;
     advance?: number;
@@ -60,6 +60,11 @@ export async function createBooking(input: BookingInput) {
   const orderNumber = generateOrderNumber();
   const nowIso = new Date().toISOString();
 
+  // Bill total = sum of (possibly edited) per-test prices, falling back to the
+  // explicitly supplied total when line items carry no prices.
+  const lineTotal = input.tests.reduce((s, t) => s + (Number(t.price) || 0), 0);
+  const totalAmount = lineTotal || input.payment.totalAmount;
+
   // ── 1. Build the real LHRegisterBillAPI payload ──────────────────────────
   const payload: Record<string, unknown> = {
     fullName:    input.patient.name,
@@ -75,7 +80,7 @@ export async function createBooking(input: BookingInput) {
     patientId:    input.patient.patientId ?? "",
     billDetails: {
       emergencyFlag:    "0",
-      totalAmount:      String(input.payment.totalAmount),
+      totalAmount:      String(totalAmount),
       advance:          String(input.payment.advance ?? 0),
       billDate:         nowIso,
       paymentType:      input.payment.paymentType,
@@ -141,6 +146,7 @@ export async function createBooking(input: BookingInput) {
       unified_code:   t.crelioTestId,
       test_name:      t.testName,
       crelio_test_id: t.crelioTestId,
+      price:          Number(t.price) || null,
       status:         "booked",
     })),
   );

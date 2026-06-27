@@ -34,7 +34,7 @@ export interface BookingPayload {
   channel: "d2c" | "corporate" | "walkin";
   organizationIdLH?: number;
   patient: { name: string; mobile?: string; age: number; gender: "M" | "F" | "O"; email?: string; city?: string; dob?: string; labPatientId?: string; patientId?: string };
-  tests: Array<{ crelioTestId: string; testName: string }>;
+  tests: Array<{ crelioTestId: string; testName: string; price?: number }>;
   payment: { totalAmount: number; advance?: number; paymentType: "Cash" | "Online" | "Credit" };
   referralName?: string;
   comments?: string;

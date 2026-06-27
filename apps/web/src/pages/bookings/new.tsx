@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Card, Form, Input, InputNumber, Select, Radio, DatePicker, Button, Space,
-  Typography, message, Divider, Row, Col, Alert,
+  Typography, message, Divider, Row, Col, Alert, Table,
 } from "antd";
-import { ArrowLeftOutlined, UserOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, UserOutlined, DeleteOutlined } from "@ant-design/icons";
 import { supabaseClient } from "../../lib/supabase";
 import { createBooking, fetchOrganizations, type BookingPayload, type CrelioOrg } from "../../lib/api";
 
@@ -19,11 +19,15 @@ type TestOpt = { value: string; label: string };
 
 const CREATE_NEW = "__create_new__";
 
+type CatalogueRow = { crelio_test_id: string; test_name: string; price?: number | null };
+type LineItem = { crelioTestId: string; testName: string; price: number };
+
 export function BookingNew() {
   const navigate = useNavigate();
   const [form] = Form.useForm();
   const [submitting, setSubmitting] = useState(false);
-  const [testOpts, setTestOpts] = useState<TestOpt[]>([]);
+  const [catalogue, setCatalogue] = useState<CatalogueRow[]>([]);
+  const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [loadingTests, setLoadingTests] = useState(false);
   const [orgs, setOrgs] = useState<CrelioOrg[]>([]);
   const [loadingOrgs, setLoadingOrgs] = useState(false);
@@ -108,29 +112,52 @@ export function BookingNew() {
       .finally(() => setLoadingOrgs(false));
   }, [channel, centre]);
 
-  // Load this centre's catalogue as test options
+  // Load this centre's catalogue (with prices) for the line-item picker.
+  // select("*") is resilient if the price column isn't present yet.
+  const priceMap = useMemo(
+    () => new Map(catalogue.map((t) => [t.crelio_test_id, { name: t.test_name, price: Number(t.price ?? 0) || 0 }])),
+    [catalogue],
+  );
+  const testOpts = useMemo<TestOpt[]>(
+    () => catalogue.map((t) => ({
+      value: t.crelio_test_id,
+      label: t.price ? `${t.test_name} — ₹${Number(t.price)}` : t.test_name,
+    })),
+    [catalogue],
+  );
+
   useEffect(() => {
-    if (!centre) { setTestOpts([]); return; }
+    if (!centre) { setCatalogue([]); return; }
     setLoadingTests(true);
     supabaseClient
       .from("catalogue_tests")
-      .select("crelio_test_id, test_name")
+      .select("*")
       .eq("centre_id", centre)
       .order("test_name")
       .limit(5000)
       .then(({ data }) => {
-        setTestOpts((data ?? []).map((t) => ({ value: t.crelio_test_id as string, label: t.test_name as string })));
+        setCatalogue((data ?? []) as CatalogueRow[]);
         setLoadingTests(false);
-        form.setFieldValue("tests", []);
+        setLineItems([]);
       });
-  }, [centre]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [centre]);
 
-  const testLabel = useMemo(() => {
-    const m = new Map(testOpts.map((o) => [o.value, o.label]));
-    return (id: string) => m.get(id) ?? id;
-  }, [testOpts]);
+  function addLineItem(id: string) {
+    if (lineItems.some((li) => li.crelioTestId === id)) return;
+    const t = priceMap.get(id);
+    if (!t) return;
+    setLineItems((prev) => [...prev, { crelioTestId: id, testName: t.name, price: t.price }]);
+  }
+  function updatePrice(id: string, price: number) {
+    setLineItems((prev) => prev.map((li) => (li.crelioTestId === id ? { ...li, price } : li)));
+  }
+  function removeLineItem(id: string) {
+    setLineItems((prev) => prev.filter((li) => li.crelioTestId !== id));
+  }
+  const total = lineItems.reduce((s, li) => s + (Number(li.price) || 0), 0);
 
   async function onFinish(v: any) {
+    if (!lineItems.length) { message.error("Add at least one test"); return; }
     const payload: BookingPayload = {
       centreId: v.centreId,
       channel: v.channel,
@@ -146,9 +173,9 @@ export function BookingNew() {
         // Reuse the Crelio patient only if the linked mobile still matches.
         labPatientId: linked && v.mobile === linked.mobile ? (linked.crelioPatientId || undefined) : undefined,
       },
-      tests: (v.tests ?? []).map((id: string) => ({ crelioTestId: id, testName: testLabel(id) })),
+      tests: lineItems.map((li) => ({ crelioTestId: li.crelioTestId, testName: li.testName, price: li.price })),
       payment: {
-        totalAmount: Number(v.totalAmount ?? 0),
+        totalAmount: total,
         advance: v.advance ? Number(v.advance) : undefined,
         paymentType: v.paymentType,
       },
@@ -276,29 +303,69 @@ export function BookingNew() {
         </Card>
 
         <Card title="Tests" size="small" style={{ marginBottom: 16 }}>
-          <Form.Item name="tests" label="Select tests / profiles" rules={[{ required: true, message: "Pick at least one test" }]}>
-            <Select
-              mode="multiple"
-              showSearch
-              loading={loadingTests}
-              disabled={!centre}
-              placeholder={centre ? "Search the catalogue…" : "Select a centre first"}
-              options={testOpts}
-              optionFilterProp="label"
-              maxTagCount="responsive"
+          <Select
+            showSearch
+            value={null}
+            loading={loadingTests}
+            disabled={!centre}
+            placeholder={centre ? "Add a test / profile — price fills in automatically…" : "Select a centre first"}
+            options={testOpts}
+            optionFilterProp="label"
+            onChange={(id) => addLineItem(String(id))}
+            style={{ width: "100%", marginBottom: 12 }}
+          />
+          {lineItems.length > 0 ? (
+            <Table<LineItem>
+              dataSource={lineItems}
+              rowKey="crelioTestId"
+              size="small"
+              pagination={false}
+              columns={[
+                { title: "Test / Profile", dataIndex: "testName" },
+                {
+                  title: "Price (₹)", width: 150, align: "right",
+                  render: (_, li) => (
+                    <InputNumber
+                      min={0}
+                      value={li.price}
+                      onChange={(val) => updatePrice(li.crelioTestId, Number(val) || 0)}
+                      style={{ width: 120 }}
+                    />
+                  ),
+                },
+                {
+                  title: "", width: 44,
+                  render: (_, li) => (
+                    <Button type="text" danger icon={<DeleteOutlined />} onClick={() => removeLineItem(li.crelioTestId)} />
+                  ),
+                },
+              ]}
+              summary={() => (
+                <Table.Summary.Row>
+                  <Table.Summary.Cell index={0}><strong>Total</strong></Table.Summary.Cell>
+                  <Table.Summary.Cell index={1} align="right"><strong>₹{total.toLocaleString("en-IN")}</strong></Table.Summary.Cell>
+                  <Table.Summary.Cell index={2} />
+                </Table.Summary.Row>
+              )}
             />
-          </Form.Item>
+          ) : (
+            <Typography.Text type="secondary">No tests added yet.</Typography.Text>
+          )}
         </Card>
 
         <Card title="Payment" size="small" style={{ marginBottom: 16 }}>
-          <Row gutter={16}>
+          <Row gutter={16} align="bottom">
             <Col span={8}>
               <Form.Item name="paymentType" label="Payment type">
                 <Select options={[{ value: "Cash", label: "Cash" }, { value: "Online", label: "Online" }, { value: "Credit", label: "Credit" }]} />
               </Form.Item>
             </Col>
-            <Col span={8}><Form.Item name="totalAmount" label="Total amount"><InputNumber style={{ width: "100%" }} min={0} prefix="₹" /></Form.Item></Col>
-            <Col span={8}><Form.Item name="advance" label="Advance (optional)"><InputNumber style={{ width: "100%" }} min={0} prefix="₹" /></Form.Item></Col>
+            <Col span={8}><Form.Item name="advance" label="Advance (optional)"><InputNumber style={{ width: "100%" }} min={0} max={total || undefined} prefix="₹" /></Form.Item></Col>
+            <Col span={8}>
+              <Form.Item label="Bill total">
+                <Typography.Title level={4} style={{ margin: 0 }}>₹{total.toLocaleString("en-IN")}</Typography.Title>
+              </Form.Item>
+            </Col>
           </Row>
         </Card>
 

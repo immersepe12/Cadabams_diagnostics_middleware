@@ -30,6 +30,7 @@ export async function syncCatalogue(centreId: CentreId): Promise<{ synced: numbe
       crelio_test_id: String(t.testID ?? t.testId),
       test_name: t.testName,
       department: t.departmentName ?? t.department ?? null,
+      price: Number(t.testAmount ?? t.price ?? t.testPrice) || null,
       is_active: true,
       synced_at: new Date().toISOString(),
     }));
