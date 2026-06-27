@@ -5,6 +5,7 @@ import { cors } from "hono/cors";
 import webhookRoute   from "./routes/webhook";
 import bookingsRoute  from "./routes/bookings";
 import catalogueRoute from "./routes/catalogue";
+import syncRoute      from "./routes/sync";
 
 const app = new Hono();
 
@@ -16,5 +17,6 @@ app.get("/health", (c) => c.json({ status: "ok", service: "cadabams-api" }));
 app.route("/webhook",   webhookRoute);
 app.route("/bookings",  bookingsRoute);
 app.route("/catalogue", catalogueRoute);
+app.route("/sync",      syncRoute);
 
 export default app;

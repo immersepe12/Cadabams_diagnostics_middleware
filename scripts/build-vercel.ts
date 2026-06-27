@@ -1,9 +1,14 @@
 // Builds the Vercel Build Output API v3 directory (.vercel/output).
-// This bypasses Vercel's source-tree function auto-detection and gives us a
-// single, fully-bundled Node serverless function — no runtime module resolution.
+// API bundle + Vite frontend in one pass — no separate Vercel project needed.
+//
+// Output structure:
+//   .vercel/output/
+//     functions/index.func/   ← Hono API (Node serverless)
+//     static/                 ← Vite SPA (CDN-served)
+//     config.json             ← routing: API paths → function, rest → SPA
 //
 // Docs: https://vercel.com/docs/build-output-api/v3
-import { mkdir, writeFile, rm, rename } from "node:fs/promises";
+import { mkdir, writeFile, rm, rename, cp } from "node:fs/promises";
 
 const OUT = ".vercel/output";
 const FUNC = `${OUT}/functions/index.func`;
@@ -11,10 +16,8 @@ const FUNC = `${OUT}/functions/index.func`;
 await rm(OUT, { recursive: true, force: true });
 await mkdir(FUNC, { recursive: true });
 
-// Bundle the entry + all of src/ into one file. Node-target packages
-// (hono, @hono/node-server, @supabase/supabase-js) are inlined so the
-// function needs no node_modules at runtime.
-const result = await Bun.build({
+// ── 1. Bundle Hono API ───────────────────────────────────────────────────────
+const apiResult = await Bun.build({
   entrypoints: ["./src/vercel-entry.ts"],
   outdir: FUNC,
   target: "node",
@@ -22,42 +25,60 @@ const result = await Bun.build({
   minify: false,
 });
 
-if (!result.success) {
-  console.error("Bundle failed:");
-  for (const log of result.logs) console.error(log);
+if (!apiResult.success) {
+  for (const log of apiResult.logs) console.error(log);
   process.exit(1);
 }
 
-// Bun emits vercel-entry.js — Vercel's launcher needs the handler filename to
-// match .vc-config.json. Rename to index.mjs (ESM).
 await rename(`${FUNC}/vercel-entry.js`, `${FUNC}/index.mjs`);
 
 await writeFile(
   `${FUNC}/.vc-config.json`,
-  JSON.stringify(
-    {
-      // Node 22+ has native WebSocket, which @supabase/supabase-js requires
-      // when it initializes its Realtime client inside createClient().
-      runtime: "nodejs22.x",
-      handler: "index.mjs",
-      launcherType: "Nodejs",
-      shouldAddHelpers: true,
-    },
-    null,
-    2
-  )
+  JSON.stringify({
+    runtime: "nodejs22.x",
+    handler: "index.mjs",
+    launcherType: "Nodejs",
+    shouldAddHelpers: true,
+  }, null, 2)
 );
 
+console.log("✓ API bundle (Hono)");
+
+// ── 2. Build Vite frontend ───────────────────────────────────────────────────
+async function run(cmd: string[], cwd: string) {
+  const proc = Bun.spawn(cmd, { cwd, stdout: "inherit", stderr: "inherit" });
+  const code = await proc.exited;
+  if (code !== 0) process.exit(code);
+}
+
+console.log("Installing apps/web dependencies...");
+await run(["bun", "install", "--frozen-lockfile"], "apps/web");
+
+console.log("Building frontend...");
+await run(["bun", "run", "build"], "apps/web");
+
+// Copy Vite dist → .vercel/output/static (Vercel serves these from its CDN)
+await cp("apps/web/dist", `${OUT}/static`, { recursive: true });
+console.log("✓ Frontend static files");
+
+// ── 3. Routing config ────────────────────────────────────────────────────────
+// API paths go to the Hono function. Static assets are served by the
+// filesystem handler. Everything else (SPA client-side routes) falls back
+// to index.html so react-router-dom can take over.
 await writeFile(
   `${OUT}/config.json`,
-  JSON.stringify(
-    {
-      version: 3,
-      routes: [{ src: "/(.*)", dest: "/index" }],
-    },
-    null,
-    2
-  )
+  JSON.stringify({
+    version: 3,
+    routes: [
+      { src: "^/health$",             dest: "/index" },
+      { src: "^/bookings(/.*)?$",   dest: "/index" },
+      { src: "^/webhook(/.*)?$",    dest: "/index" },
+      { src: "^/catalogue(/.*)?$",  dest: "/index" },
+      { src: "^/sync(/.*)?$",       dest: "/index" },
+      { handle: "filesystem" },
+      { src: "^/(.*)",             dest: "/index.html" },
+    ],
+  }, null, 2)
 );
 
-console.log("Built .vercel/output (Build Output API v3)");
+console.log("✓ Built .vercel/output (Build Output API v3)");
