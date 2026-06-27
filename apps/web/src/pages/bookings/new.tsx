@@ -4,7 +4,7 @@ import {
   Card, Form, Input, InputNumber, Select, Radio, DatePicker, Button, Space,
   Typography, message, Divider, Row, Col, Alert,
 } from "antd";
-import { ArrowLeftOutlined, UserOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, UserOutlined, PlusOutlined } from "@ant-design/icons";
 import { supabaseClient } from "../../lib/supabase";
 import { createBooking, fetchOrganizations, type BookingPayload, type CrelioOrg } from "../../lib/api";
 
@@ -35,10 +35,13 @@ export function BookingNew() {
   };
   const [patientResults, setPatientResults] = useState<PatientRow[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [linked, setLinked] = useState<{ mobile: string; name: string | null; crelioPatientId: string | null } | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function searchPatients(q: string) {
+    setSearchText(q);
     if (searchTimer.current) clearTimeout(searchTimer.current);
     if (!q || q.trim().length < 2) { setPatientResults([]); return; }
     searchTimer.current = setTimeout(async () => {
@@ -70,6 +73,18 @@ export function BookingNew() {
       gender: r.patient_gender ?? "M",
     });
     setLinked({ mobile: r.patient_mobile, name: r.patient_name, crelioPatientId: r.crelio_patient_id });
+    setSearchText(""); setSearchOpen(false);
+  }
+
+  // "Create new" from the search box: drop any link, seed the mobile from what
+  // was typed (if it's a number), and let ops fill the rest as a new patient.
+  function createNewFromSearch() {
+    const digits = searchText.replace(/\D/g, "");
+    setLinked(null);
+    if (digits.length >= 6) form.setFieldsValue({ mobile: digits });
+    form.setFieldsValue({ name: undefined, age: undefined });
+    setSearchText(""); setPatientResults([]); setSearchOpen(false);
+    message.info("New patient — enter the details below.");
   }
 
   const centre = Form.useWatch("centreId", form);
@@ -199,20 +214,38 @@ export function BookingNew() {
         </Card>
 
         <Card title="Patient" size="small" style={{ marginBottom: 16 }}>
-          <Form.Item label="Find existing patient" tooltip="Search mirrored patients by name or mobile. Pick one to reuse them, or just fill the details below to create a new patient.">
+          <Form.Item label="Find existing patient" tooltip="Search mirrored patients by name or mobile. Pick one to reuse them, or enter a new number and click “Create new patient”.">
             <Select
+              id="patient-search"
               showSearch
               filterOption={false}
+              searchValue={searchText}
               onSearch={searchPatients}
+              open={searchOpen}
+              onDropdownVisibleChange={setSearchOpen}
+              value={undefined}
               onChange={(m) => pickPatient(String(m))}
               loading={searching}
               suffixIcon={<UserOutlined />}
               placeholder="Search by name or mobile…"
-              notFoundContent={searching ? "Searching…" : "Type at least 2 characters"}
+              notFoundContent={searching ? "Searching…" : (searchText.trim().length >= 2 ? null : "Type a name or number")}
               options={patientResults.map((r) => ({
                 value: r.patient_mobile,
                 label: `${r.patient_name ?? "No name"} · ${r.patient_mobile}`,
               }))}
+              dropdownRender={(menu) => (
+                <>
+                  {patientResults.length > 0 && menu}
+                  {searchText.trim().length >= 2 && (
+                    <>
+                      {patientResults.length > 0 && <Divider style={{ margin: "4px 0" }} />}
+                      <Button type="text" block icon={<PlusOutlined />} style={{ textAlign: "left" }} onMouseDown={(e) => e.preventDefault()} onClick={createNewFromSearch}>
+                        Create new patient{/\d{3,}/.test(searchText) ? `: ${searchText.replace(/\D/g, "")}` : ""}
+                      </Button>
+                    </>
+                  )}
+                </>
+              )}
             />
           </Form.Item>
           {linked && (
