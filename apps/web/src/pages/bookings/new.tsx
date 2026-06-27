@@ -4,7 +4,7 @@ import {
   Card, Form, Input, InputNumber, Select, Radio, DatePicker, Button, Space,
   Typography, message, Divider, Row, Col, Alert,
 } from "antd";
-import { ArrowLeftOutlined, UserOutlined, PlusOutlined } from "@ant-design/icons";
+import { ArrowLeftOutlined, UserOutlined } from "@ant-design/icons";
 import { supabaseClient } from "../../lib/supabase";
 import { createBooking, fetchOrganizations, type BookingPayload, type CrelioOrg } from "../../lib/api";
 
@@ -16,6 +16,8 @@ const CENTRES = [
 ];
 
 type TestOpt = { value: string; label: string };
+
+const CREATE_NEW = "__create_new__";
 
 export function BookingNew() {
   const navigate = useNavigate();
@@ -36,7 +38,6 @@ export function BookingNew() {
   const [patientResults, setPatientResults] = useState<PatientRow[]>([]);
   const [searching, setSearching] = useState(false);
   const [searchText, setSearchText] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
   const [linked, setLinked] = useState<{ mobile: string; name: string | null; crelioPatientId: string | null } | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -63,6 +64,12 @@ export function BookingNew() {
     }, 300);
   }
 
+  // Reset the search and drop focus so the dropdown closes after a selection.
+  function closeSearch() {
+    setSearchText("");
+    setTimeout(() => (document.getElementById("patient-search") as HTMLElement | null)?.blur(), 0);
+  }
+
   function pickPatient(mobile: string) {
     const r = patientResults.find((x) => x.patient_mobile === mobile);
     if (!r) return;
@@ -73,7 +80,7 @@ export function BookingNew() {
       gender: r.patient_gender ?? "M",
     });
     setLinked({ mobile: r.patient_mobile, name: r.patient_name, crelioPatientId: r.crelio_patient_id });
-    setSearchText(""); setSearchOpen(false);
+    closeSearch();
   }
 
   // "Create new" from the search box: drop any link, seed the mobile from what
@@ -83,7 +90,7 @@ export function BookingNew() {
     setLinked(null);
     if (digits.length >= 6) form.setFieldsValue({ mobile: digits });
     form.setFieldsValue({ name: undefined, age: undefined });
-    setSearchText(""); setPatientResults([]); setSearchOpen(false);
+    setPatientResults([]); closeSearch();
     message.info("New patient — enter the details below.");
   }
 
@@ -221,31 +228,27 @@ export function BookingNew() {
               filterOption={false}
               searchValue={searchText}
               onSearch={searchPatients}
-              open={searchOpen}
-              onDropdownVisibleChange={setSearchOpen}
               value={undefined}
-              onChange={(m) => pickPatient(String(m))}
               loading={searching}
               suffixIcon={<UserOutlined />}
               placeholder="Search by name or mobile…"
-              notFoundContent={searching ? "Searching…" : (searchText.trim().length >= 2 ? null : "Type a name or number")}
-              options={patientResults.map((r) => ({
-                value: r.patient_mobile,
-                label: `${r.patient_name ?? "No name"} · ${r.patient_mobile}`,
-              }))}
-              dropdownRender={(menu) => (
-                <>
-                  {patientResults.length > 0 && menu}
-                  {searchText.trim().length >= 2 && (
-                    <>
-                      {patientResults.length > 0 && <Divider style={{ margin: "4px 0" }} />}
-                      <Button type="text" block icon={<PlusOutlined />} style={{ textAlign: "left" }} onMouseDown={(e) => e.preventDefault()} onClick={createNewFromSearch}>
-                        Create new patient{/\d{3,}/.test(searchText) ? `: ${searchText.replace(/\D/g, "")}` : ""}
-                      </Button>
-                    </>
-                  )}
-                </>
-              )}
+              notFoundContent={searching ? "Searching…" : "Type a name or number"}
+              // "Create new" is a real option (not a dropdown footer): selecting it
+              // closes the dropdown natively, and its presence keeps the dropdown
+              // from auto-closing on empty results — so no flash, no focus hacks.
+              onChange={(val) => (val === CREATE_NEW ? createNewFromSearch() : pickPatient(String(val)))}
+              options={[
+                ...patientResults.map((r) => ({
+                  value: r.patient_mobile,
+                  label: `${r.patient_name ?? "No name"} · ${r.patient_mobile}`,
+                })),
+                ...(searchText.trim().length >= 2
+                  ? [{
+                      value: CREATE_NEW,
+                      label: `➕ Create new patient${/\d{3,}/.test(searchText) ? `: ${searchText.replace(/\D/g, "")}` : ""}`,
+                    }]
+                  : []),
+              ]}
             />
           </Form.Item>
           {linked && (
