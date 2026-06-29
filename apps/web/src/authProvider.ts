@@ -10,7 +10,7 @@ export const authProvider: AuthProvider = {
     if (error) {
       return { success: false, error: { name: "LoginError", message: error.message } };
     }
-    return { success: true, redirectTo: "/orders" };
+    return { success: true, redirectTo: "/bills" };
   },
 
   logout: async () => {
