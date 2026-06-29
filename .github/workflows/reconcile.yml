@@ -1,0 +1,32 @@
+name: Reconcile missed webhooks
+
+# Periodically heals orders the webhook left without patient data (bills first
+# seen via a sample/report event, e.g. the pre-webhook backlog). Idempotent.
+on:
+  schedule:
+    - cron: "*/15 * * * *" # every 15 min (GitHub may delay under load)
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+concurrency:
+  group: reconcile
+  cancel-in-progress: false
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Heal nameless orders
+        env:
+          URL: https://cadabams-diagnostics-middleware.vercel.app/sync/reconcile
+          KEY: ${{ secrets.RECONCILE_SECRET }}
+        run: |
+          for i in $(seq 1 12); do
+            resp=$(curl -s -X POST "$URL" \
+              -H "Content-Type: application/json" \
+              -H "x-reconcile-key: $KEY" \
+              -d '{"limit":15}' --max-time 120)
+            echo "batch $i: $resp"
+            echo "$resp" | grep -q '"remaining":0' && { echo "done"; break; }
+            echo "$resp" | grep -q '"ok":true' || { echo "::error::reconcile failed"; exit 1; }
+            sleep 2
+          done

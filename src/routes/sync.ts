@@ -13,6 +13,12 @@ const str = (v: unknown): string => (v == null ? "" : String(v).trim());
 // remain so it can be called again. (The webhook self-heals new bills inline;
 // this catches stragglers / enrichment failures.)
 route.post("/reconcile", async (c) => {
+  // Only the scheduled job (with the shared secret) may trigger reconciliation.
+  const secret = process.env.RECONCILE_SECRET;
+  if (secret && c.req.header("x-reconcile-key") !== secret) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
   const body = (await c.req.json().catch(() => ({}))) as { limit?: number };
   const n = Math.min(Math.max(Number(body.limit) || 8, 1), 15);
 
