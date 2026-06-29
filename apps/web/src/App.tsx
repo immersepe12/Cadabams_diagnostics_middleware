@@ -10,6 +10,7 @@ import {
   UserOutlined,
   FileTextOutlined,
   ExperimentOutlined,
+  ScanOutlined,
 } from "@ant-design/icons";
 import { App as AntApp } from "antd";
 import "@refinedev/antd/dist/reset.css";
@@ -20,6 +21,7 @@ import { PatientShow } from "./pages/patients/show";
 import { BillList } from "./pages/bills/list";
 import { BillShow } from "./pages/bills/show";
 import { TestList } from "./pages/tests/list";
+import { RadiologyList } from "./pages/radiology/list";
 import { BookingNew } from "./pages/bookings/new";
 
 export default function App() {
@@ -49,6 +51,11 @@ export default function App() {
               list: "/tests",
               meta: { label: "Tests", icon: <ExperimentOutlined /> },
             },
+            {
+              name: "radiology",
+              list: "/radiology",
+              meta: { label: "Radiology", icon: <ScanOutlined /> },
+            },
           ]}
           options={{ syncWithLocation: true, liveMode: "auto" }}
         >
@@ -73,6 +80,7 @@ export default function App() {
               <Route path="/bills/new" element={<BookingNew />} />
               <Route path="/bills/:id" element={<BillShow />} />
               <Route path="/tests" element={<TestList />} />
+              <Route path="/radiology" element={<RadiologyList />} />
             </Route>
             <Route path="*" element={<ErrorComponent />} />
           </Routes>
