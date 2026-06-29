@@ -2,7 +2,9 @@ import { useTable, List } from "@refinedev/antd";
 import { Table, Input, Button, Space, Alert } from "antd";
 import { SearchOutlined, UserOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { CrudFilters } from "@refinedev/core";
+import { DateFilter, type DateRange } from "../../components/DateFilter";
 
 type Patient = {
   mobile: string;
@@ -20,6 +22,7 @@ function fmtDate(v: string) {
 export function PatientList() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
+  const [date, setDate] = useState<DateRange>(null);
 
   // Reads the `patients` SQL view (orders grouped by phone) — server-paginated.
   const { tableProps, setFilters } = useTable<Patient>({
@@ -28,21 +31,21 @@ export function PatientList() {
     sorters: { initial: [{ field: "last_visit", order: "desc" }] },
   });
 
-  function applySearch(val: string) {
-    setQuery(val);
-    setFilters(
-      val
-        ? [{
-            operator: "or",
-            value: [
-              { field: "mobile", operator: "contains", value: val },
-              { field: "name", operator: "contains", value: val },
-            ],
-          }]
-        : [],
-      "replace",
-    );
-  }
+  useEffect(() => {
+    const f: CrudFilters = [];
+    if (query) f.push({
+      operator: "or",
+      value: [
+        { field: "mobile", operator: "contains", value: query },
+        { field: "name", operator: "contains", value: query },
+      ],
+    });
+    if (date) {
+      f.push({ field: "last_visit", operator: "gte", value: date.start });
+      f.push({ field: "last_visit", operator: "lt", value: date.end });
+    }
+    setFilters(f, "replace");
+  }, [query, date]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <List title="Patients">
@@ -59,9 +62,10 @@ export function PatientList() {
           prefix={<SearchOutlined />}
           style={{ width: 260 }}
           value={query}
-          onChange={(e) => applySearch(e.target.value)}
+          onChange={(e) => setQuery(e.target.value)}
           allowClear
         />
+        <DateFilter onChange={setDate} />
       </Space>
 
       <Table<Patient>

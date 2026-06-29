@@ -1,8 +1,10 @@
 import { useTable, List } from "@refinedev/antd";
 import { Table, Tag, Input, Select, Row, Col, Space, Button } from "antd";
 import { SearchOutlined, PlusOutlined } from "@ant-design/icons";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { CrudFilters } from "@refinedev/core";
+import { DateFilter, type DateRange } from "../../components/DateFilter";
 
 const CENTRES = [
   { value: "KYL", label: "Kalyan Nagar" },
@@ -48,24 +50,43 @@ function fmtDate(v: string) {
 
 export function BillList() {
   const navigate = useNavigate();
+  const [q, setQ] = useState("");
+  const [centre, setCentre] = useState<string>();
+  const [channel, setChannel] = useState<string>();
+  const [status, setStatus] = useState<string>();
+  const [date, setDate] = useState<DateRange>(null);
+
   const { tableProps, setFilters } = useTable({
     resource: "orders",
-    meta: { select: "*, centres(display_name), order_items(id, status)" },
+    // Use an inner join only when filtering by status (so it filters the bills),
+    // otherwise a plain embed so bills with no items still show.
+    meta: {
+      select: status
+        ? "*, centres(display_name), order_items!inner(id, status)"
+        : "*, centres(display_name), order_items(id, status)",
+    },
     sorters: { initial: [{ field: "created_at", order: "desc" }] },
   });
 
-  function handleSearch(val: string) {
-    if (!val) { setFilters([]); return; }
-    const f: CrudFilters = [{
+  useEffect(() => {
+    const f: CrudFilters = [];
+    if (q) f.push({
       operator: "or",
       value: [
-        { field: "patient_name", operator: "contains", value: val },
-        { field: "patient_mobile", operator: "contains", value: val },
-        { field: "order_number", operator: "contains", value: val },
+        { field: "patient_name", operator: "contains", value: q },
+        { field: "patient_mobile", operator: "contains", value: q },
+        { field: "order_number", operator: "contains", value: q },
       ],
-    }];
-    setFilters(f);
-  }
+    });
+    if (centre) f.push({ field: "centre_id", operator: "eq", value: centre });
+    if (channel) f.push({ field: "channel", operator: "eq", value: channel });
+    if (status) f.push({ field: "order_items.status", operator: "eq", value: status });
+    if (date) {
+      f.push({ field: "created_at", operator: "gte", value: date.start });
+      f.push({ field: "created_at", operator: "lt", value: date.end });
+    }
+    setFilters(f, "replace");
+  }, [q, centre, channel, status, date]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <List
@@ -76,33 +97,29 @@ export function BillList() {
         </Button>
       }
     >
-      <Row gutter={8} style={{ marginBottom: 16 }}>
+      <Row gutter={[8, 8]} style={{ marginBottom: 16 }}>
         <Col>
           <Input.Search
             placeholder="Name / mobile / order #"
             style={{ width: 240 }}
             prefix={<SearchOutlined />}
-            onSearch={handleSearch}
+            onSearch={setQ}
             allowClear
-            onClear={() => setFilters([])}
+            onChange={(e) => { if (!e.target.value) setQ(""); }}
           />
         </Col>
         <Col>
-          <Select placeholder="Centre" style={{ width: 160 }} allowClear options={CENTRES}
-            onChange={(v) => setFilters(v ? [{ field: "centre_id", operator: "eq", value: v }] : [])} />
+          <Select placeholder="Centre" style={{ width: 160 }} allowClear options={CENTRES} value={centre} onChange={setCentre} />
         </Col>
         <Col>
-          <Select placeholder="Channel" style={{ width: 130 }} allowClear
-            options={[{ value: "corporate", label: "Corporate" }, { value: "d2c", label: "D2C" }, { value: "walkin", label: "Walk-in" }]}
-            onChange={(v) => setFilters(v ? [{ field: "channel", operator: "eq", value: v }] : [])} />
+          <Select placeholder="Channel" style={{ width: 130 }} allowClear value={channel} onChange={setChannel}
+            options={[{ value: "corporate", label: "Corporate" }, { value: "d2c", label: "D2C" }, { value: "walkin", label: "Walk-in" }]} />
         </Col>
         <Col>
-          <Select placeholder="Status" style={{ width: 160 }} allowClear options={STATUSES}
-            onChange={(v) => {
-              if (!v) { setFilters([]); return; }
-              // filter order_items by status — simulated via order-level search
-              setFilters([{ field: "order_items.status", operator: "eq", value: v }]);
-            }} />
+          <Select placeholder="Status" style={{ width: 160 }} allowClear options={STATUSES} value={status} onChange={setStatus} />
+        </Col>
+        <Col>
+          <DateFilter onChange={setDate} />
         </Col>
       </Row>
 
