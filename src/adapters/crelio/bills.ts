@@ -47,6 +47,7 @@ export async function syncBillById(centreId: CentreId, billId: string): Promise<
   if (!head) return { billId, tests: 0 };
 
   const orderNumber = str(head.orderNumber) || `CRELIO-${centreId}-${billId}`;
+  const orgId = Number(head.organisationId ?? head.organizationId ?? head.orgId) || null;
 
   // Upsert the order. Omit mobile/age/gender — getOrderStatusAPI doesn't return
   // them, and we must not clobber values a Bill Generation webhook already set.
@@ -59,6 +60,7 @@ export async function syncBillById(centreId: CentreId, billId: string): Promise<
       patient_name:      str(head["Patient Name"]) || null,
       crelio_bill_id:    billId,
       crelio_patient_id: str(head.labPatientId) || null,
+      ...(orgId ? { crelio_org_id: orgId } : {}),
     }, { onConflict: "crelio_bill_id" })
     .select("id")
     .single();

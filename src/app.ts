@@ -8,6 +8,7 @@ import catalogueRoute from "./routes/catalogue";
 import syncRoute      from "./routes/sync";
 import actionsRoute   from "./routes/actions";
 import dataRoute      from "./routes/data";
+import v1Route        from "./routes/v1";
 
 const app = new Hono();
 
@@ -22,5 +23,6 @@ app.route("/catalogue", catalogueRoute);
 app.route("/sync",      syncRoute);
 app.route("/actions",   actionsRoute);
 app.route("/data",      dataRoute);
+app.route("/v1",        v1Route);
 
 export default app;

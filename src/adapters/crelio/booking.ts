@@ -136,6 +136,7 @@ export async function createBooking(input: BookingInput) {
       patient_gender:    input.patient.gender,
       crelio_bill_id:    crelioBillId || null,
       crelio_patient_id: crelioPatientId || null,
+      crelio_org_id:     input.organizationIdLH ?? null,
     })
     .select("id")
     .single();

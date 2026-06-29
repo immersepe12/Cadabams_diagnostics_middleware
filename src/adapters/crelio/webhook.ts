@@ -172,7 +172,7 @@ async function ensureOrder(
 ): Promise<{ id: string; created: boolean } | null> {
   const { data: existing } = await supabase
     .from("orders")
-    .select("id, patient_name, patient_mobile, patient_age, patient_gender, crelio_patient_id")
+    .select("id, patient_name, patient_mobile, patient_age, patient_gender, crelio_patient_id, crelio_org_id")
     .or(
       [
         p.billId ? `crelio_bill_id.eq.${p.billId}` : null,
@@ -190,6 +190,7 @@ async function ensureOrder(
     if (existing.patient_age == null && p.patient.age != null) upd.patient_age = p.patient.age;
     if (!existing.patient_gender && p.patient.gender) upd.patient_gender = p.patient.gender;
     if (!existing.crelio_patient_id && p.patientId) upd.crelio_patient_id = p.patientId;
+    if (!existing.crelio_org_id && p.orgId) upd.crelio_org_id = p.orgId;
     if (Object.keys(upd).length) await supabase.from("orders").update(upd).eq("id", existing.id);
     return { id: existing.id, created: false };
   }
@@ -208,6 +209,7 @@ async function ensureOrder(
       patient_gender:    p.patient.gender,
       crelio_bill_id:    p.billId,
       crelio_patient_id: p.patientId || null,
+      crelio_org_id:     p.orgId || null,
     }, { onConflict: "crelio_bill_id" })
     .select("id")
     .single();
