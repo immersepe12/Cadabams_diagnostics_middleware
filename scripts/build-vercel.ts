@@ -39,6 +39,7 @@ await writeFile(
     handler: "index.mjs",
     launcherType: "Nodejs",
     shouldAddHelpers: true,
+    maxDuration: 60,
   }, null, 2)
 );
 

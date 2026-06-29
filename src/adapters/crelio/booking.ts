@@ -1,4 +1,5 @@
 import { supabase } from "../../lib/supabase";
+import { normalizeMobile } from "../../lib/normalize";
 import { crelioPost } from "./client";
 import type { CentreId } from "./types";
 
@@ -59,6 +60,7 @@ function generateOrderNumber(): string {
 export async function createBooking(input: BookingInput) {
   const orderNumber = generateOrderNumber();
   const nowIso = new Date().toISOString();
+  const mobile = normalizeMobile(input.patient.mobile);
 
   // Bill total = sum of (possibly edited) per-test prices, falling back to the
   // explicitly supplied total when line items carry no prices.
@@ -68,7 +70,7 @@ export async function createBooking(input: BookingInput) {
   // ── 1. Build the real LHRegisterBillAPI payload ──────────────────────────
   const payload: Record<string, unknown> = {
     fullName:    input.patient.name,
-    mobile:      input.patient.mobile ?? "",
+    mobile:      mobile ?? "",
     email:       input.patient.email ?? "",
     age:         input.patient.age,
     gender:      GENDER[input.patient.gender] ?? "Other",
@@ -129,7 +131,7 @@ export async function createBooking(input: BookingInput) {
       corporate_id:      input.corporateId ?? null,
       channel:           input.channel,
       patient_name:      input.patient.name,
-      patient_mobile:    input.patient.mobile ?? null,
+      patient_mobile:    mobile,
       patient_age:       input.patient.age,
       patient_gender:    input.patient.gender,
       crelio_bill_id:    crelioBillId || null,

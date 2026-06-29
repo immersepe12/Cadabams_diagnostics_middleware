@@ -1,6 +1,8 @@
 import { supabase } from "../../lib/supabase";
+import { normalizeMobile } from "../../lib/normalize";
 import { mapCrelioStatus, canTransition, type OrderItemStatus } from "../../domain/state-machine";
 import { labIdToCentre } from "./client";
+import { syncBillById } from "./bills";
 import type { CrelioWebhookPayload } from "./types";
 
 // Crelio's payloads are inconsistent: labId is sometimes a nested {labId} object
@@ -92,7 +94,7 @@ export function normalise(raw: any): Normalised {
     isAmended:   raw.is_amended === 1 || raw.is_amended === true,
     patient: {
       name:   str(raw["Patient Name"] ?? raw.patientName) || null,
-      mobile: str(raw["Mobile Number"] ?? raw["Patient Contact"] ?? raw["Patient Alternate Contact"] ?? raw.patientMobile) || null,
+      mobile: normalizeMobile(raw["Mobile Number"] ?? raw["Patient Contact"] ?? raw["Patient Alternate Contact"] ?? raw.patientMobile),
       age:    parseAge(raw["Patient Age"] ?? raw.Age ?? raw.patientAge),
       gender: parseGender(raw["Patient gender"] ?? raw.Gender ?? raw.patientGender),
     },
@@ -112,10 +114,10 @@ export function normalise(raw: any): Normalised {
 async function ensureOrder(
   p: Normalised,
   centreId: string,
-): Promise<{ id: string } | null> {
+): Promise<{ id: string; created: boolean } | null> {
   const { data: existing } = await supabase
     .from("orders")
-    .select("id")
+    .select("id, patient_name, patient_mobile, patient_age, patient_gender, crelio_patient_id")
     .or(
       [
         p.billId ? `crelio_bill_id.eq.${p.billId}` : null,
@@ -124,7 +126,19 @@ async function ensureOrder(
     )
     .maybeSingle();
 
-  if (existing) return existing;
+  if (existing) {
+    // Backfill any patient field this payload carries that's currently empty
+    // (e.g. a Bill Generation arriving after a sample event created the order).
+    const upd: Record<string, unknown> = {};
+    if (!existing.patient_name && p.patient.name) upd.patient_name = p.patient.name;
+    if (!existing.patient_mobile && p.patient.mobile) upd.patient_mobile = p.patient.mobile;
+    if (existing.patient_age == null && p.patient.age != null) upd.patient_age = p.patient.age;
+    if (!existing.patient_gender && p.patient.gender) upd.patient_gender = p.patient.gender;
+    if (!existing.crelio_patient_id && p.patientId) upd.crelio_patient_id = p.patientId;
+    if (Object.keys(upd).length) await supabase.from("orders").update(upd).eq("id", existing.id);
+    return { id: existing.id, created: false };
+  }
+
   if (!p.billId) return null; // can't key a new order without a bill id
 
   const { data, error } = await supabase
@@ -147,7 +161,7 @@ async function ensureOrder(
     console.error(`ensureOrder failed (bill ${p.billId}):`, error.message);
     return null;
   }
-  return data;
+  return { id: data.id, created: true };
 }
 
 // Seed order_items from a Bill Generation payload (status=booked).
@@ -193,6 +207,17 @@ export async function processWebhook(raw: CrelioWebhookPayload): Promise<{ skipp
   // Create the order if we've never seen this bill (forward mirror of walk-ins)
   const order = await ensureOrder(p, centreId);
   if (!order) return { skipped: "could not resolve or create order" };
+
+  // Self-heal: a bill first seen via a sample/report event has no patient data
+  // in the payload (only Bill Generation does). Pull the full bill — patient +
+  // all tests — from Crelio once, so it's never left nameless/itemless.
+  if (order.created && !p.patient.name && p.billId) {
+    try {
+      await syncBillById(centreId as any, p.billId);
+    } catch (err: any) {
+      console.error(`webhook enrich failed (${centreId}/${p.billId}):`, err?.message ?? err);
+    }
+  }
 
   // Bill Generation carries the full test list — seed items up front
   if (mapping.orderItemStatus === "booked") {
