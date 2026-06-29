@@ -35,7 +35,12 @@ function extractTestIds(raw: any): string[] {
   const t = raw.testID ?? raw.test_id ?? raw.testCode ?? raw.test_code ?? raw["Report Id"];
   if (Array.isArray(t)) return t.map(str).filter(Boolean);
   const s = str(t);
-  return s ? [s] : [];
+  if (s) return [s];
+  // Consolidated "Structured Data" feed nests testIDs under reportDetails[].
+  if (Array.isArray(raw.reportDetails)) {
+    return raw.reportDetails.map((d: any) => str(d["Report Id"] ?? d.testID ?? d.test_id)).filter(Boolean);
+  }
+  return [];
 }
 
 function extractReportUrl(raw: CrelioWebhookPayload): string | null {
@@ -44,6 +49,30 @@ function extractReportUrl(raw: CrelioWebhookPayload): string | null {
     if (links[0]) return links[0];
   }
   return raw.reportURL ?? raw.report_url ?? null;
+}
+
+// From the Consolidated "Structured Data" feed: per-test analyte values +
+// signing doctor, keyed by testID ("Report Id").
+function reportDetailsByTest(raw: any): Map<string, {
+  values: unknown; signingDoctor: string | null; reportDate: string | null; testName: string | null;
+}> {
+  const m = new Map<string, { values: unknown; signingDoctor: string | null; reportDate: string | null; testName: string | null }>();
+  const details = Array.isArray(raw.reportDetails) ? raw.reportDetails : [];
+  for (const d of details) {
+    const tid = str(d["Report Id"] ?? d.testID ?? d.test_id);
+    if (!tid) continue;
+    const sdArr = d["Signing Doctor"];
+    const signingDoctor = Array.isArray(sdArr) && sdArr[0]
+      ? String(Object.values(sdArr[0])[0] ?? "") || null
+      : null;
+    m.set(tid, {
+      values: d.reportFormatAndValues ?? null,
+      signingDoctor,
+      reportDate: str(d["Report Date"] ?? d.reportDate) || null,
+      testName: str(d["Test Name"] ?? d.testName) || null,
+    });
+  }
+  return m;
 }
 
 // "25" → 25, "24 years" → 24, "2 months"/"3 days" → null (infants get no integer age)
@@ -225,7 +254,7 @@ export async function processWebhook(raw: CrelioWebhookPayload): Promise<{ skipp
   }
 
   // Apply the status to the affected items
-  const targetItemIds: string[] = [];
+  const affected: Array<{ testId: string; itemId: string }> = [];
   if (p.testIds.length) {
     for (const testId of p.testIds) {
       const { data: item } = await supabase
@@ -242,11 +271,40 @@ export async function processWebhook(raw: CrelioWebhookPayload): Promise<{ skipp
       if (p.reportUrl) updates.report_url = p.reportUrl;
       if (p.isAmended) updates.is_amended = true;
       await supabase.from("order_items").update(updates).eq("id", item.id);
-      targetItemIds.push(item.id);
+      affected.push({ testId, itemId: item.id });
     }
   } else if (mapping.orderItemStatus === "cancelled") {
     // Whole-bill cancel with no per-test list → cancel every item
     await supabase.from("order_items").update({ status: "cancelled" }).eq("order_id", order.id);
+  }
+
+  const targetItemIds = affected.map((a) => a.itemId);
+
+  // Canonical report store: on a report event, capture a report row per item
+  // (hosted URL + structured analyte values + signing doctor). Append-only so
+  // amended reports keep history. Never let this fail the webhook.
+  if (["report_submitted", "report_sent"].includes(mapping.eventType) && affected.length) {
+    try {
+      const byTest = reportDetailsByTest(raw);
+      const rows = affected.map(({ testId, itemId }) => {
+        const d = byTest.get(testId);
+        return {
+          order_id:          order.id,
+          order_item_id:     itemId,
+          crelio_test_id:    testId,
+          test_name:         d?.testName ?? null,
+          report_url:        p.reportUrl,
+          structured_values: d?.values ?? null,
+          signing_doctor:    d?.signingDoctor ?? null,
+          reported_at:       d?.reportDate ?? new Date().toISOString(),
+          is_amended:        p.isAmended,
+          source:            "crelio",
+        };
+      });
+      await supabase.from("reports").insert(rows);
+    } catch (err: any) {
+      console.error(`reports capture failed (${centreId}/${p.billId}):`, err?.message ?? err);
+    }
   }
 
   // Append event(s) — one per affected item, or one order-level event
