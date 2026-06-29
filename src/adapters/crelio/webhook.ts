@@ -75,6 +75,32 @@ function reportDetailsByTest(raw: any): Map<string, {
   return m;
 }
 
+// Report file ref: hosted URL if Crelio gave one, else decode the base64 PDF
+// into the private `reports` bucket (service-role upload, bypasses storage RLS).
+async function resolveReportRef(
+  p: { reportUrl: string | null; billId: string },
+  raw: any,
+  centreId: string,
+  eventType: string,
+): Promise<{ ref: string | null; blob: string | null }> {
+  if (p.reportUrl) return { ref: p.reportUrl, blob: null };
+  if (!["report_submitted", "report_sent"].includes(eventType) || !p.billId) return { ref: null, blob: null };
+
+  const b64 = str(raw.reportBase64 ?? raw.reportsData ?? raw.report_base64);
+  if (b64.length < 100) return { ref: null, blob: null };
+  try {
+    const path = `${centreId}/${p.billId}/${Date.now()}.pdf`;
+    const { error } = await supabase.storage
+      .from("reports")
+      .upload(path, Buffer.from(b64, "base64"), { contentType: "application/pdf", upsert: true });
+    if (error) { console.error("report base64 upload failed:", error.message); return { ref: null, blob: null }; }
+    return { ref: path, blob: path };
+  } catch (err: any) {
+    console.error("report base64 upload threw:", err?.message ?? err);
+    return { ref: null, blob: null };
+  }
+}
+
 // "25" → 25, "24 years" → 24, "2 months"/"3 days" → null (infants get no integer age)
 function parseAge(v: unknown): number | null {
   const s = str(v);
@@ -253,6 +279,11 @@ export async function processWebhook(raw: CrelioWebhookPayload): Promise<{ skipp
     await seedItems(order.id, p);
   }
 
+  // Resolve the report file reference for report events: prefer a hosted URL;
+  // otherwise decode the base64 PDF into the (private) reports bucket and keep
+  // its object path. report_url then holds either an http URL or a bucket path.
+  const reportRef = await resolveReportRef(p, raw, centreId, mapping.eventType);
+
   // Apply the status to the affected items
   const affected: Array<{ testId: string; itemId: string }> = [];
   if (p.testIds.length) {
@@ -268,7 +299,7 @@ export async function processWebhook(raw: CrelioWebhookPayload): Promise<{ skipp
 
       const updates: Record<string, unknown> = { status: mapping.orderItemStatus };
       if (mapping.timestampField) updates[mapping.timestampField] = new Date().toISOString();
-      if (p.reportUrl) updates.report_url = p.reportUrl;
+      if (reportRef.ref) updates.report_url = reportRef.ref;
       if (p.isAmended) updates.is_amended = true;
       await supabase.from("order_items").update(updates).eq("id", item.id);
       affected.push({ testId, itemId: item.id });
@@ -281,7 +312,7 @@ export async function processWebhook(raw: CrelioWebhookPayload): Promise<{ skipp
   const targetItemIds = affected.map((a) => a.itemId);
 
   // Canonical report store: on a report event, capture a report row per item
-  // (hosted URL + structured analyte values + signing doctor). Append-only so
+  // (file ref + structured analyte values + signing doctor). Append-only so
   // amended reports keep history. Never let this fail the webhook.
   if (["report_submitted", "report_sent"].includes(mapping.eventType) && affected.length) {
     try {
@@ -293,7 +324,8 @@ export async function processWebhook(raw: CrelioWebhookPayload): Promise<{ skipp
           order_item_id:     itemId,
           crelio_test_id:    testId,
           test_name:         d?.testName ?? null,
-          report_url:        p.reportUrl,
+          report_url:        reportRef.ref,
+          pdf_blob_ref:      reportRef.blob,
           structured_values: d?.values ?? null,
           signing_doctor:    d?.signingDoctor ?? null,
           reported_at:       d?.reportDate ?? new Date().toISOString(),

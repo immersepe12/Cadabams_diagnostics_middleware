@@ -260,24 +260,33 @@ export function BillShow() {
       return;
     }
 
-    const { data: { publicUrl } } = supabaseClient.storage
-      .from("reports")
-      .getPublicUrl(path);
-
+    // Store the bucket PATH (not a public URL) — the bucket is private; we sign
+    // on view.
     const { error: updateErr } = await supabaseClient
       .from("order_items")
-      .update({ report_url: publicUrl })
+      .update({ report_url: path })
       .eq("id", itemId);
 
     if (updateErr) {
-      message.error(`Failed to save URL: ${updateErr.message}`);
+      message.error(`Failed to save report: ${updateErr.message}`);
       options.onError?.(new Error(updateErr.message));
       return;
     }
 
     message.success("Report uploaded");
-    options.onSuccess?.(publicUrl);
+    options.onSuccess?.(path);
     invalidate({ resource: "order_items", invalidates: ["list"] });
+  }
+
+  // Open a report: external URLs open directly; bucket paths (and legacy public
+  // bucket URLs) get a short-lived signed URL since the bucket is now private.
+  async function openReport(ref: string) {
+    const legacy = ref.match(/\/storage\/v1\/object\/public\/reports\/(.+)$/);
+    const path = legacy ? decodeURIComponent(legacy[1]) : (/^https?:\/\//.test(ref) ? null : ref);
+    if (path === null) { window.open(ref, "_blank"); return; }
+    const { data, error } = await supabaseClient.storage.from("reports").createSignedUrl(path, 3600);
+    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+    else message.error(error?.message ?? "Could not open report");
   }
 
   const patientMobile = order?.patient_mobile;
@@ -399,8 +408,7 @@ export function BillShow() {
                         size="small"
                         type="primary"
                         icon={<LinkOutlined />}
-                        href={row.report_url}
-                        target="_blank"
+                        onClick={() => row.report_url && openReport(row.report_url)}
                       >
                         {row.is_amended ? "View (amended)" : "View Report"}
                       </Button>
