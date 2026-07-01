@@ -4,6 +4,9 @@ import {
   appointmentConfirm, appointmentReschedule, appointmentDismiss, sampleCollect,
 } from "../adapters/crelio/actions";
 import type { CentreId } from "../adapters/crelio/types";
+import { supabase } from "../lib/supabase";
+import { authPatient } from "../lib/portalAuth";
+import { reportDelivery } from "../lib/reportDelivery";
 
 const route = new Hono();
 const CENTRES: CentreId[] = ["KYL", "JNR", "KKP", "BSK"];
@@ -40,5 +43,49 @@ route.post("/appointment/dismiss",    action((centre, b) => appointmentDismiss(c
 
 // Sample
 route.post("/sample/collect", action((centre, b) => sampleCollect(centre, String(b.billId), b.testIds ?? [])));
+
+// ── Radiology report delivery (RIS, internal) ────────────────────────────────
+// POST /actions/report/send { orderItemId } — staff only. Notifies the patient
+// (Fyno seam), moves the item to report_sent, and logs a report_sent event.
+// Requires the item to already be 'completed' (which itself required a report).
+route.post("/report/send", async (c) => {
+  const auth = await authPatient(c.req.header("authorization"));
+  if (!auth?.isStaff) return c.json({ error: "unauthorized" }, 401);
+
+  const { orderItemId } = await c.req.json().catch(() => ({}));
+  if (!orderItemId) return c.json({ error: "orderItemId is required" }, 400);
+
+  const { data: item } = await supabase
+    .from("order_items")
+    .select("id, order_id, status, report_url, test_name, orders!inner(patient_name, patient_mobile)")
+    .eq("id", orderItemId)
+    .maybeSingle();
+
+  if (!item) return c.json({ error: "not found" }, 404);
+  if (item.status !== "completed") {
+    return c.json({ error: "item must be completed before sending" }, 409);
+  }
+
+  const order = item.orders as unknown as { patient_name: string | null; patient_mobile: string | null };
+  try {
+    await reportDelivery.sendReport(
+      { mobile: order.patient_mobile, name: order.patient_name },
+      { testName: (item.test_name as string) ?? "your report", reportUrl: item.report_url as string | null },
+    );
+  } catch (err: any) {
+    console.error("report delivery failed:", err?.message ?? err);
+    return c.json({ error: "delivery failed" }, 502);
+  }
+
+  await supabase.from("order_items").update({ status: "report_sent" }).eq("id", orderItemId);
+  await supabase.from("order_events").insert({
+    order_id: item.order_id,
+    order_item_id: orderItemId,
+    event_type: "report_sent",
+    source: "ops",
+  });
+
+  return c.json({ ok: true });
+});
 
 export default route;

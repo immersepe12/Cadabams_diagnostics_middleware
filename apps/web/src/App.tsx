@@ -26,6 +26,7 @@ import { BillList } from "./pages/bills/list";
 import { BillShow } from "./pages/bills/show";
 import { TestList } from "./pages/tests/list";
 import { RadiologyList } from "./pages/radiology/list";
+import { Worklist } from "./pages/radiology/worklist";
 import { BookingNew } from "./pages/bookings/new";
 import { PortalAuthenticated } from "./portal/PortalAuthenticated";
 import { PortalLayout } from "./portal/PortalLayout";
@@ -95,6 +96,21 @@ export default function App() {
               list: "/radiology",
               meta: { label: "Radiology", icon: <ScanOutlined /> },
             },
+            {
+              name: "radiology_us",
+              list: "/radiology/us",
+              meta: { label: "Ultrasound", icon: <ScanOutlined />, parent: "radiology" },
+            },
+            {
+              name: "radiology_ctmri",
+              list: "/radiology/ct-mri",
+              meta: { label: "CT & MRI", icon: <ScanOutlined />, parent: "radiology" },
+            },
+            {
+              name: "radiology_xray",
+              list: "/radiology/xray",
+              meta: { label: "X-Ray", icon: <ScanOutlined />, parent: "radiology" },
+            },
           ]}
           options={{ syncWithLocation: true, liveMode: "auto" }}
         >
@@ -125,6 +141,9 @@ export default function App() {
               <Route path="/bills/:id" element={<BillShow />} />
               <Route path="/tests" element={<TestList />} />
               <Route path="/radiology" element={<RadiologyList />} />
+              <Route path="/radiology/us" element={<Worklist modality="us" title="Ultrasound" />} />
+              <Route path="/radiology/ct-mri" element={<Worklist modality="ctmri" title="CT & MRI" />} />
+              <Route path="/radiology/xray" element={<Worklist modality="xray" title="X-Ray" />} />
             </Route>
 
             <Route

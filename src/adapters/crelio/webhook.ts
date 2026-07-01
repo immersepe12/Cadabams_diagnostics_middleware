@@ -14,6 +14,14 @@ import type { CrelioWebhookPayload } from "./types";
 
 const str = (v: unknown): string => (v == null ? "" : String(v).trim());
 
+// Numeric amount or null. Crelio sends amounts as numbers or numeric strings;
+// empty/"-"/non-numeric → null so a payment-less event never writes a 0.
+function num(v: unknown): number | null {
+  if (v == null || v === "" || v === "-") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 // labId/orgId arrive flat or nested ({labId}/{orgId}). Pull the numeric id.
 function flatId(v: any, ...keys: string[]): number {
   if (v && typeof v === "object") {
@@ -133,6 +141,41 @@ interface Normalised {
     gender: "M" | "F" | "O" | null;
   };
   billTests: Array<{ testId: string; testName: string }>; // from Bill Generation billInfoDetails
+  payment: Payment;
+}
+
+// Billing snapshot carried by the webhook (Bill Generation and later events).
+interface Payment {
+  bill_total_amount: number | null;
+  paid_amount: number | null;
+  due_amount: number | null;
+  advance_amount: number | null;
+  discount_amount: number | null;
+  tax_amount: number | null;
+  payment_mode: string | null;
+  payment_status: string | null;
+  is_bill_due: boolean | null;
+  referral_name: string | null;
+  currency: string | null;
+  payment_note: string | null;
+}
+
+function extractPayment(raw: any): Payment {
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(raw, k);
+  return {
+    bill_total_amount: num(raw.billTotalAmount),
+    paid_amount:       num(raw.totalBillPaidAmount),
+    due_amount:        num(raw.dueAmount),
+    advance_amount:    num(raw.billAdvance),
+    discount_amount:   num(raw.billConcession),
+    tax_amount:        num(raw.vat_amount),
+    payment_mode:      str(raw.payment_mode ?? raw.billPaymentMode) || null,
+    payment_status:    str(raw.billPaymentStatus) || null,
+    is_bill_due:       has("isBillDue") ? Boolean(raw.isBillDue) : null,
+    referral_name:     str(raw.billReferral ?? raw.ReferralName) || null,
+    currency:          str(raw.currency) || null,
+    payment_note:      str(raw.billComments ?? raw.billComment) || null,
+  };
 }
 
 export function normalise(raw: any): Normalised {
@@ -159,7 +202,16 @@ export function normalise(raw: any): Normalised {
         testName: str(b.testname ?? b.TestDetails?.TestName ?? b.testId),
       }))
       .filter((t: { testId: string }) => t.testId),
+    payment: extractPayment(raw),
   };
+}
+
+// Payment columns present in this payload (skip nulls so an event that carries no
+// billing never wipes a value an earlier event set).
+function paymentCols(p: Payment): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(p)) if (v != null) out[k] = v;
+  return out;
 }
 
 // ── Order/item upserts ────────────────────────────────────────────────────────
@@ -191,6 +243,9 @@ async function ensureOrder(
     if (!existing.patient_gender && p.patient.gender) upd.patient_gender = p.patient.gender;
     if (!existing.crelio_patient_id && p.patientId) upd.crelio_patient_id = p.patientId;
     if (!existing.crelio_org_id && p.orgId) upd.crelio_org_id = p.orgId;
+    // Refresh payment from whatever this event carries (overwrite — it's the
+    // latest billing snapshot; paymentCols already skips absent fields).
+    Object.assign(upd, paymentCols(p.payment));
     if (Object.keys(upd).length) await supabase.from("orders").update(upd).eq("id", existing.id);
     return { id: existing.id, created: false };
   }
@@ -210,6 +265,7 @@ async function ensureOrder(
       crelio_bill_id:    p.billId,
       crelio_patient_id: p.patientId || null,
       crelio_org_id:     p.orgId || null,
+      ...paymentCols(p.payment),
     }, { onConflict: "crelio_bill_id" })
     .select("id")
     .single();

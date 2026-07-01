@@ -6,6 +6,7 @@ export type OrderItemStatus =
   | "collected"
   | "accessioned"
   | "report_generated"
+  | "completed"       // radiology: report uploaded + finalized (RIS)
   | "report_sent"
   | "cancelled"
   | "rejected";
@@ -55,7 +56,7 @@ export function mapCrelioStatus(rawStatus: string): StatusMapping | null {
 // Guard: only allow valid forward transitions (or same-status idempotency).
 // Prevents a late-arriving webhook from regressing a completed status.
 const STATUS_ORDER: OrderItemStatus[] = [
-  "booked", "collected", "accessioned", "report_generated", "report_sent",
+  "booked", "collected", "accessioned", "report_generated", "completed", "report_sent",
 ];
 
 export function canTransition(from: OrderItemStatus, to: OrderItemStatus): boolean {

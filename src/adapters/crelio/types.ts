@@ -73,6 +73,22 @@ export interface CrelioWebhookPayload {
   sampleCollectedDate?: string;
   reportDate?: string;
 
+  // Billing / payment — carried by Bill Generation (and later events)
+  billTotalAmount?: number | string;
+  totalBillPaidAmount?: number | string;
+  dueAmount?: number | string;
+  billAdvance?: number | string;
+  billConcession?: number | string;
+  vat_amount?: number | string;
+  payment_mode?: string;
+  billPaymentMode?: string;
+  billPaymentStatus?: string;
+  isBillDue?: 0 | 1 | boolean;
+  billReferral?: string;
+  ReferralName?: string;
+  currency?: string;
+  billComments?: string;
+
   // Auth — should match CRELIO_WEBHOOK_SECRET env
   APIKEY?: string;
   APIUSER?: string;

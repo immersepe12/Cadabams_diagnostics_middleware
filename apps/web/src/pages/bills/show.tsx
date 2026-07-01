@@ -41,6 +41,11 @@ function fmtDate(v: string | null | undefined) {
   }).format(new Date(v));
 }
 
+function money(v: number | null | undefined, currency = "₹") {
+  if (v == null) return "—";
+  return `${currency}${new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(v)}`;
+}
+
 type OrderItem = {
   id: string;
   test_name: string;
@@ -83,6 +88,18 @@ type Order = {
   crelio_patient_id: string | null;
   created_at: string;
   centres: { display_name: string } | null;
+  bill_total_amount: number | null;
+  paid_amount: number | null;
+  due_amount: number | null;
+  advance_amount: number | null;
+  discount_amount: number | null;
+  tax_amount: number | null;
+  payment_mode: string | null;
+  payment_status: string | null;
+  is_bill_due: boolean | null;
+  referral_name: string | null;
+  currency: string | null;
+  payment_note: string | null;
 };
 
 export function BillShow() {
@@ -338,6 +355,31 @@ export function BillShow() {
           <Descriptions.Item label="Crelio Patient ID">{order?.crelio_patient_id ?? "—"}</Descriptions.Item>
         </Descriptions>
       </Card>
+
+      {/* Bill & Payment (captured from Crelio's webhook) */}
+      {order && (order.bill_total_amount != null || order.paid_amount != null || order.payment_mode) && (
+        <Card title="Bill & Payment" style={{ marginBottom: 16 }}>
+          <Descriptions column={{ xs: 1, sm: 2, md: 3 }} size="small" bordered>
+            <Descriptions.Item label="Total">{money(order.bill_total_amount, order.currency ?? "₹")}</Descriptions.Item>
+            <Descriptions.Item label="Paid">{money(order.paid_amount, order.currency ?? "₹")}</Descriptions.Item>
+            <Descriptions.Item label="Balance Due">
+              <span style={{ color: order.due_amount ? "#cf1322" : undefined }}>
+                {money(order.due_amount, order.currency ?? "₹")}
+              </span>
+            </Descriptions.Item>
+            <Descriptions.Item label="Payment Mode">{order.payment_mode ?? "—"}</Descriptions.Item>
+            <Descriptions.Item label="Status">
+              {order.payment_status
+                ? <Tag color={order.is_bill_due ? "orange" : "green"}>{order.payment_status}</Tag>
+                : "—"}
+            </Descriptions.Item>
+            <Descriptions.Item label="Discount">{money(order.discount_amount, order.currency ?? "₹")}</Descriptions.Item>
+            <Descriptions.Item label="Tax">{money(order.tax_amount, order.currency ?? "₹")}</Descriptions.Item>
+            <Descriptions.Item label="Referral">{order.referral_name ?? "—"}</Descriptions.Item>
+            <Descriptions.Item label="Note">{order.payment_note ?? "—"}</Descriptions.Item>
+          </Descriptions>
+        </Card>
+      )}
 
       {/* Tests / Scans */}
       <Card title={`Tests & Scans (${items.length})`} style={{ marginBottom: 16 }}>

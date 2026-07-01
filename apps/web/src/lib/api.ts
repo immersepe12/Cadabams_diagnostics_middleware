@@ -1,6 +1,7 @@
 // The dashboard and the Hono API ship in one Vercel deployment, so API calls are
 // same-origin relative paths. (Vite dev proxies these to localhost:3000 — see
 // vite.config.ts.)
+import { supabaseClient } from "./supabase";
 
 export interface SyncBillResult {
   ok: boolean;
@@ -61,6 +62,25 @@ export function billAction(
   body: Record<string, unknown>,
 ) {
   return postJson<{ ok: boolean; result: unknown }>(`/actions/bill/${op}`, body);
+}
+
+// Radiology: notify the patient of their report + move the item to report_sent.
+// Staff-gated on the backend, so we attach the ops user's Supabase access token.
+export async function sendReportToPatient(orderItemId: string): Promise<{ ok: boolean }> {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  const res = await fetch("/actions/report/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+    },
+    body: JSON.stringify({ orderItemId }),
+  });
+  if (!res.ok) {
+    const b = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(b.error ?? `Send failed (HTTP ${res.status})`);
+  }
+  return (await res.json()) as { ok: boolean };
 }
 
 export interface CrelioOrg { orgId: number; name: string; code: string | null; city: string | null }
