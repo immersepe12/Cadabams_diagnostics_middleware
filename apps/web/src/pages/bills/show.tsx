@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { supabaseClient } from "../../lib/supabase";
 import { syncBill, billAction } from "../../lib/api";
+import { AnalyteTable, analyteRows, type Analyte } from "../../components/AnalyteTable";
 
 const STATUS_COLOR: Record<string, string> = {
   booked: "blue",
@@ -59,15 +60,6 @@ type OrderEvent = {
   created_at: string;
 };
 
-type Analyte = {
-  value?: string;
-  reportFormat?: {
-    testName?: string; testUnit?: string;
-    lowerBoundMale?: string; upperBoundMale?: string; otherMale?: string;
-    descriptionFlag?: number;
-  } | unknown;
-};
-
 type ReportRow = {
   id: string;
   order_item_id: string | null;
@@ -77,14 +69,6 @@ type ReportRow = {
   is_amended: boolean;
   structured_values: Analyte[] | null;
 };
-
-function analyteRows(sv: Analyte[]): Analyte[] {
-  return sv.filter(
-    (a) => a.reportFormat && !Array.isArray(a.reportFormat) &&
-      (a.reportFormat as { descriptionFlag?: number }).descriptionFlag !== 1 &&
-      (a.reportFormat as { testName?: string }).testName,
-  );
-}
 
 type Order = {
   id: string;
@@ -466,25 +450,7 @@ export function BillShow() {
                   {r.is_amended && <Tag color="orange">amended</Tag>}
                   {r.signing_doctor && <Typography.Text type="secondary" style={{ fontSize: 12 }}>· {r.signing_doctor}</Typography.Text>}
                 </Space>
-                <Table
-                  size="small"
-                  pagination={false}
-                  dataSource={rows.map((a, i) => ({ key: i, ...a }))}
-                  columns={[
-                    { title: "Analyte", render: (_: unknown, a: Analyte) => (a.reportFormat as { testName?: string })?.testName ?? "—" },
-                    { title: "Value", width: 120, render: (_: unknown, a: Analyte) => <strong>{a.value ?? "—"}</strong> },
-                    { title: "Unit", width: 90, render: (_: unknown, a: Analyte) => (a.reportFormat as { testUnit?: string })?.testUnit ?? "" },
-                    {
-                      title: "Reference", width: 160,
-                      render: (_: unknown, a: Analyte) => {
-                        const rf = a.reportFormat as { lowerBoundMale?: string; upperBoundMale?: string; otherMale?: string } | undefined;
-                        if (!rf) return "";
-                        if (rf.otherMale && rf.otherMale !== "-") return rf.otherMale;
-                        return rf.lowerBoundMale && rf.upperBoundMale ? `${rf.lowerBoundMale} – ${rf.upperBoundMale}` : "";
-                      },
-                    },
-                  ]}
-                />
+                <AnalyteTable values={r.structured_values ?? []} />
               </div>
             );
           })}

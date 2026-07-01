@@ -14,8 +14,9 @@ import {
   ScanOutlined,
   LogoutOutlined,
 } from "@ant-design/icons";
-import { App as AntApp, Button, Layout, Space, Typography } from "antd";
+import { App as AntApp, Button, Layout, Space, Spin, Typography } from "antd";
 import "@refinedev/antd/dist/reset.css";
+import { useEffect, useState } from "react";
 
 import { supabaseClient } from "./lib/supabase";
 import { authProvider } from "./authProvider";
@@ -26,6 +27,26 @@ import { BillShow } from "./pages/bills/show";
 import { TestList } from "./pages/tests/list";
 import { RadiologyList } from "./pages/radiology/list";
 import { BookingNew } from "./pages/bookings/new";
+import { PortalAuthenticated } from "./portal/PortalAuthenticated";
+import { PortalLayout } from "./portal/PortalLayout";
+import { PortalLogin } from "./portal/login";
+import { ReportHub } from "./portal/pages/ReportHub";
+import { ReportDetail } from "./portal/pages/ReportDetail";
+
+// Inside the ops <Authenticated> group a session is guaranteed, but a phone-authed
+// patient would also pass it. Assert the staff role and bounce patients to /portal.
+function RequireStaff({ children }: { children: React.ReactNode }) {
+  const [state, setState] = useState<"loading" | "staff" | "not-staff">("loading");
+  useEffect(() => {
+    supabaseClient.auth.getSession().then(({ data }) => {
+      const role = (data.session?.user.app_metadata as { role?: string })?.role;
+      setState(role === "staff" ? "staff" : "not-staff");
+    });
+  }, []);
+  if (state === "loading") return <div style={{ display: "grid", placeItems: "center", height: "100vh" }}><Spin /></div>;
+  if (state === "not-staff") return <Navigate to="/portal" replace />;
+  return <>{children}</>;
+}
 
 function AppHeader() {
   const { mutate: logout } = useLogout();
@@ -81,16 +102,18 @@ export default function App() {
             <Route
               element={
                 <Authenticated key="protected" fallback={<CatchAllNavigate to="/login" />}>
-                  <ThemedLayoutV2
-                    Header={AppHeader}
-                    Title={({ collapsed }) => (
-                      <span style={{ fontWeight: 700, fontSize: collapsed ? 14 : 16, whiteSpace: "nowrap" }}>
-                        {collapsed ? "CD" : "Cadabams Ops"}
-                      </span>
-                    )}
-                  >
-                    <Outlet />
-                  </ThemedLayoutV2>
+                  <RequireStaff>
+                    <ThemedLayoutV2
+                      Header={AppHeader}
+                      Title={({ collapsed }) => (
+                        <span style={{ fontWeight: 700, fontSize: collapsed ? 14 : 16, whiteSpace: "nowrap" }}>
+                          {collapsed ? "CD" : "Cadabams Ops"}
+                        </span>
+                      )}
+                    >
+                      <Outlet />
+                    </ThemedLayoutV2>
+                  </RequireStaff>
                 </Authenticated>
               }
             >
@@ -122,6 +145,20 @@ export default function App() {
                   />
                 }
               />
+            </Route>
+
+            {/* Patient portal — phone-OTP auth, its own slim layout, scoped by RLS */}
+            <Route path="/portal/login" element={<PortalLogin />} />
+            <Route
+              path="/portal"
+              element={
+                <PortalAuthenticated>
+                  <PortalLayout />
+                </PortalAuthenticated>
+              }
+            >
+              <Route index element={<ReportHub />} />
+              <Route path="reports/:id" element={<ReportDetail />} />
             </Route>
 
             <Route path="*" element={<ErrorComponent />} />

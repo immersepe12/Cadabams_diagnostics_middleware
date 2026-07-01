@@ -9,6 +9,8 @@ import syncRoute      from "./routes/sync";
 import actionsRoute   from "./routes/actions";
 import dataRoute      from "./routes/data";
 import v1Route        from "./routes/v1";
+import portalRoute    from "./routes/portal";
+import authHookRoute  from "./routes/authHook";
 
 const app = new Hono();
 
@@ -24,5 +26,8 @@ app.route("/sync",      syncRoute);
 app.route("/actions",   actionsRoute);
 app.route("/data",      dataRoute);
 app.route("/v1",        v1Route);
+// Under /api/* so they don't collide with the SPA's /portal/* patient section.
+app.route("/api/portal", portalRoute);
+app.route("/api/auth",   authHookRoute);
 
 export default app;
