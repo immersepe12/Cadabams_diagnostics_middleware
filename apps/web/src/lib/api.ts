@@ -83,6 +83,25 @@ export async function sendReportToPatient(orderItemId: string): Promise<{ ok: bo
   return (await res.json()) as { ok: boolean };
 }
 
+// Radiology: mint a handoff link into the external scribe reporting tool for a
+// CT/MRI scan. Staff-gated on the backend, so attach the ops user's token.
+export async function openReporter(orderItemId: string): Promise<{ url: string }> {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  const res = await fetch("/api/ris/handoff", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+    },
+    body: JSON.stringify({ orderItemId }),
+  });
+  if (!res.ok) {
+    const b = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(b.error ?? `Could not open reporter (HTTP ${res.status})`);
+  }
+  return (await res.json()) as { url: string };
+}
+
 export interface CrelioOrg { orgId: number; name: string; code: string | null; city: string | null }
 
 // Corporate orgs for a centre (live Crelio Organization List)

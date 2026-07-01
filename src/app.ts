@@ -11,6 +11,7 @@ import dataRoute      from "./routes/data";
 import v1Route        from "./routes/v1";
 import portalRoute    from "./routes/portal";
 import authHookRoute  from "./routes/authHook";
+import risRoute       from "./routes/ris";
 
 const app = new Hono();
 
@@ -29,5 +30,6 @@ app.route("/v1",        v1Route);
 // Under /api/* so they don't collide with the SPA's /portal/* patient section.
 app.route("/api/portal", portalRoute);
 app.route("/api/auth",   authHookRoute);
+app.route("/api/ris",    risRoute);
 
 export default app;

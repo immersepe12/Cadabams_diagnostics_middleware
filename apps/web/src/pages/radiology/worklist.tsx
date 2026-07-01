@@ -1,13 +1,13 @@
 import { useTable, List } from "@refinedev/antd";
 import { Table, Tag, Select, Row, Col, Space, Button, Upload, message, Tooltip } from "antd";
-import { UploadOutlined, LinkOutlined, CheckOutlined, SendOutlined } from "@ant-design/icons";
+import { UploadOutlined, LinkOutlined, CheckOutlined, SendOutlined, AudioOutlined } from "@ant-design/icons";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { CrudFilters } from "@refinedev/core";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { DateFilter, type DateRange } from "../../components/DateFilter";
 import { supabaseClient } from "../../lib/supabase";
-import { sendReportToPatient } from "../../lib/api";
+import { sendReportToPatient, openReporter } from "../../lib/api";
 
 const STATUS_COLOR: Record<string, string> = {
   booked: "blue", collected: "orange", accessioned: "gold",
@@ -110,6 +110,18 @@ export function Worklist({ modality, title }: { modality: "us" | "ctmri" | "xray
     } finally { setBusy(null); }
   }
 
+  // Hand the scan off to the external radiology reporting tool (new tab). On
+  // completion the tool pushes the report back → the item flips to completed.
+  async function openReporterFor(row: WLRow) {
+    setBusy(row.id);
+    try {
+      const { url } = await openReporter(row.id);
+      window.open(url, "_blank");
+    } catch (err: any) {
+      message.error(err?.message ?? "Could not open reporter");
+    } finally { setBusy(null); }
+  }
+
   async function openReport(ref: string) {
     const path = /^https?:\/\//.test(ref) ? null : ref;
     if (path === null) { window.open(ref, "_blank"); return; }
@@ -160,8 +172,15 @@ export function Worklist({ modality, title }: { modality: "us" | "ctmri" | "xray
         <Table.Column<WLRow> title="Report" width={280} render={(_, r) => {
           const terminal = ["cancelled", "rejected"].includes(r.status);
           if (terminal) return <Tag color="red">{r.status}</Tag>;
+          const canReport = modality === "ctmri" && !["completed", "report_sent"].includes(r.status);
           return (
             <Space wrap>
+              {canReport && (
+                <Tooltip title="Dictate the report in the radiology scribe tool">
+                  <Button size="small" type="primary" ghost icon={<AudioOutlined />}
+                    loading={busy === r.id} onClick={() => openReporterFor(r)}>Reporter</Button>
+                </Tooltip>
+              )}
               <Upload showUploadList={false} accept=".pdf,.jpg,.jpeg,.png" customRequest={(o) => handleUpload(o, r)}>
                 <Button size="small" icon={<UploadOutlined />}>{r.report_url ? "Replace" : "Upload"}</Button>
               </Upload>
