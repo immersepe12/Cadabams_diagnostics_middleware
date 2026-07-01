@@ -56,7 +56,9 @@ route.post("/sms-hook", async (c) => {
     console.error("sms-hook delivery failed:", (err as Error)?.message ?? err);
     return c.json({ error: "delivery failed" }, 500);
   }
-  return c.body(null, 200);
+  // Supabase's Send SMS hook validates the response Content-Type — must be JSON,
+  // not an empty body. An empty object signals success.
+  return c.json({});
 });
 
 export default route;
