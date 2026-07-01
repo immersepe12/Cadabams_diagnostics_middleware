@@ -44,12 +44,16 @@ route.post("/handoff", async (c) => {
     patient_gender: string | null; referral_name: string | null;
   };
 
+  // The scribe tool's patients.sex constraint expects the full word; our orders
+  // store single-char M/F/O. Map it (unknown/empty → null).
+  const sex = ({ M: "Male", F: "Female", O: "Other" } as Record<string, string>)[o.patient_gender ?? ""] ?? null;
+
   const payload: Handoff = {
     oiid: item.id as string,
     oid: item.order_id as string,
     test: (item.test_name as string) ?? "",
     centre: o.centre_id,
-    patient: { name: o.patient_name, age: o.patient_age, sex: o.patient_gender, ref: o.referral_name },
+    patient: { name: o.patient_name, age: o.patient_age, sex, ref: o.referral_name },
     exp: Math.floor(Date.now() / 1000) + 2 * 60 * 60, // 2h to write the report
   };
   const token = await sign(payload as unknown as Record<string, unknown>, SECRET);
