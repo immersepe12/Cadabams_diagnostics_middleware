@@ -72,6 +72,7 @@ export function PatientList() {
         {...tableProps}
         rowKey="mobile"
         size="small"
+        scroll={{ x: "max-content" }}
         onRow={(row) => ({ onClick: () => navigate(`/patients/${row.mobile}`) })}
         style={{ cursor: "pointer" }}
         pagination={{ ...tableProps.pagination, showSizeChanger: true, showTotal: (t) => `${t} patients` }}

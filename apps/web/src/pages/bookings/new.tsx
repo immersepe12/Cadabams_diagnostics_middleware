@@ -202,7 +202,7 @@ export function BookingNew() {
   }
 
   return (
-    <div style={{ padding: "0 24px 40px", maxWidth: 820 }}>
+    <div style={{ padding: "0 16px 40px", maxWidth: 820 }}>
       <Space style={{ marginBottom: 16 }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/bills")} />
         <Typography.Title level={4} style={{ margin: 0 }}>New Booking</Typography.Title>
@@ -215,13 +215,13 @@ export function BookingNew() {
         initialValues={{ channel: "d2c", gender: "M", paymentType: "Cash", mode: "normal" }}
       >
         <Card title="Centre & Channel" size="small" style={{ marginBottom: 16 }}>
-          <Row gutter={16}>
-            <Col span={12}>
+          <Row gutter={[16, 8]}>
+            <Col xs={24} sm={12}>
               <Form.Item name="centreId" label="Centre" rules={[{ required: true }]}>
                 <Select options={CENTRES} placeholder="Select centre" />
               </Form.Item>
             </Col>
-            <Col span={12}>
+            <Col xs={24} sm={12}>
               <Form.Item name="channel" label="Channel">
                 <Radio.Group>
                   <Radio.Button value="d2c">D2C</Radio.Button>
@@ -239,7 +239,7 @@ export function BookingNew() {
                 disabled={!centre}
                 placeholder={centre ? "Search organizations…" : "Select a centre first"}
                 optionFilterProp="label"
-                style={{ maxWidth: 420 }}
+                style={{ width: "100%", maxWidth: 420 }}
                 options={orgs.map((o) => ({ value: o.orgId, label: o.code ? `${o.name} (${o.code})` : o.name }))}
                 notFoundContent={loadingOrgs ? "Loading…" : "No organizations"}
               />
@@ -287,18 +287,18 @@ export function BookingNew() {
               action={<Button size="small" onClick={() => setLinked(null)}>Use as new patient</Button>}
             />
           )}
-          <Row gutter={16}>
-            <Col span={12}><Form.Item name="name" label="Full name" rules={[{ required: true }]}><Input /></Form.Item></Col>
-            <Col span={12}><Form.Item name="mobile" label="Mobile"><Input /></Form.Item></Col>
-            <Col span={6}><Form.Item name="age" label="Age" rules={[{ required: true }]}><InputNumber style={{ width: "100%" }} min={0} max={130} /></Form.Item></Col>
-            <Col span={6}>
+          <Row gutter={[16, 8]}>
+            <Col xs={24} sm={12}><Form.Item name="name" label="Full name" rules={[{ required: true }]}><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item name="mobile" label="Mobile"><Input /></Form.Item></Col>
+            <Col xs={12} sm={6}><Form.Item name="age" label="Age" rules={[{ required: true }]}><InputNumber style={{ width: "100%" }} min={0} max={130} /></Form.Item></Col>
+            <Col xs={12} sm={6}>
               <Form.Item name="gender" label="Gender">
                 <Radio.Group><Radio.Button value="M">M</Radio.Button><Radio.Button value="F">F</Radio.Button><Radio.Button value="O">O</Radio.Button></Radio.Group>
               </Form.Item>
             </Col>
-            <Col span={12}><Form.Item name="dob" label="DOB (optional)"><DatePicker style={{ width: "100%" }} /></Form.Item></Col>
-            <Col span={12}><Form.Item name="email" label="Email (optional)"><Input /></Form.Item></Col>
-            <Col span={12}><Form.Item name="city" label="City (optional)"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item name="dob" label="DOB (optional)"><DatePicker style={{ width: "100%" }} /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item name="email" label="Email (optional)"><Input /></Form.Item></Col>
+            <Col xs={24} sm={12}><Form.Item name="city" label="City (optional)"><Input /></Form.Item></Col>
           </Row>
         </Card>
 
@@ -319,6 +319,7 @@ export function BookingNew() {
               dataSource={lineItems}
               rowKey="crelioTestId"
               size="small"
+              scroll={{ x: "max-content" }}
               pagination={false}
               columns={[
                 { title: "Test / Profile", dataIndex: "testName" },
@@ -354,14 +355,14 @@ export function BookingNew() {
         </Card>
 
         <Card title="Payment" size="small" style={{ marginBottom: 16 }}>
-          <Row gutter={16} align="bottom">
-            <Col span={8}>
+          <Row gutter={[16, 8]} align="bottom">
+            <Col xs={24} sm={8}>
               <Form.Item name="paymentType" label="Payment type">
                 <Select options={[{ value: "Cash", label: "Cash" }, { value: "Online", label: "Online" }, { value: "Credit", label: "Credit" }]} />
               </Form.Item>
             </Col>
-            <Col span={8}><Form.Item name="advance" label="Advance (optional)"><InputNumber style={{ width: "100%" }} min={0} max={total || undefined} prefix="₹" /></Form.Item></Col>
-            <Col span={8}>
+            <Col xs={12} sm={8}><Form.Item name="advance" label="Advance (optional)"><InputNumber style={{ width: "100%" }} min={0} max={total || undefined} prefix="₹" /></Form.Item></Col>
+            <Col xs={12} sm={8}>
               <Form.Item label="Bill total">
                 <Typography.Title level={4} style={{ margin: 0 }}>₹{total.toLocaleString("en-IN")}</Typography.Title>
               </Form.Item>

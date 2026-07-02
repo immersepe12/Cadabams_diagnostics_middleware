@@ -80,7 +80,7 @@ export function TestList() {
         </Col>
       </Row>
 
-      <Table<TestRow> {...tableProps} rowKey="id" size="small"
+      <Table<TestRow> {...tableProps} rowKey="id" size="small" scroll={{ x: "max-content" }}
         pagination={{ ...tableProps.pagination, showSizeChanger: true, showTotal: (t) => `${t} tests` }}>
         <Table.Column<TestRow> dataIndex="test_name" title="Test / Scan" />
         <Table.Column<TestRow> dataIndex="status" title="Status" width={155}

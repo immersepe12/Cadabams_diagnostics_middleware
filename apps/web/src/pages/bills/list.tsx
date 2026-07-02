@@ -127,6 +127,7 @@ export function BillList() {
         {...tableProps}
         rowKey="id"
         size="small"
+        scroll={{ x: "max-content" }}
         onRow={(row) => ({ onClick: () => navigate(`/bills/${row.id}`) })}
         style={{ cursor: "pointer" }}
         pagination={{ ...tableProps.pagination, showSizeChanger: true, showTotal: (t) => `${t} bills` }}

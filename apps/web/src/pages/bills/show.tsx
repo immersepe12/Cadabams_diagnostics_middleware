@@ -293,9 +293,9 @@ export function BillShow() {
   const patientMobile = order?.patient_mobile;
 
   return (
-    <div style={{ padding: "0 24px 40px" }}>
+    <div style={{ padding: "0 16px 40px" }}>
       {/* Header */}
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/bills")} />
         <Typography.Title level={4} style={{ margin: 0 }}>
           Bill <code>{order?.order_number ?? "…"}</code>
@@ -387,6 +387,7 @@ export function BillShow() {
           dataSource={items}
           rowKey="id"
           size="small"
+          scroll={{ x: "max-content" }}
           loading={itemsLoading}
           pagination={false}
         >

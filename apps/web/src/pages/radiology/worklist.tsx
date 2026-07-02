@@ -146,7 +146,7 @@ export function Worklist({ modality, title }: { modality: "us" | "ctmri" | "xray
         <Col><DateFilter onChange={setDate} /></Col>
       </Row>
 
-      <Table<WLRow> {...tableProps} rowKey="id" size="small"
+      <Table<WLRow> {...tableProps} rowKey="id" size="small" scroll={{ x: "max-content" }}
         pagination={{ ...tableProps.pagination, showSizeChanger: true, showTotal: (t) => `${t} scans` }}>
         <Table.Column<WLRow> title="Scan" render={(_, r) => (
           <Space direction="vertical" size={0}>

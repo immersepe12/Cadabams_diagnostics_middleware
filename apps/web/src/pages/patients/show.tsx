@@ -60,8 +60,8 @@ export function PatientShow() {
   const first = bills[0];
 
   return (
-    <div style={{ padding: "0 24px 24px" }}>
-      <Space style={{ marginBottom: 16 }}>
+    <div style={{ padding: "0 16px 24px" }}>
+      <Space style={{ marginBottom: 16 }} wrap>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/patients")} />
         <Typography.Title level={4} style={{ margin: 0 }}>
           {first?.patient_name ?? mobile}
@@ -85,6 +85,7 @@ export function PatientShow() {
           rowKey="id"
           loading={isLoading}
           size="small"
+          scroll={{ x: "max-content" }}
           onRow={(row) => ({ onClick: () => navigate(`/bills/${row.id}`) })}
           pagination={false}
         >

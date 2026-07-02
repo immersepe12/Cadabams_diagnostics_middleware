@@ -53,7 +53,7 @@ function AppHeader() {
   const { mutate: logout } = useLogout();
   const { data: user } = useGetIdentity<{ name?: string }>();
   return (
-    <Layout.Header style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, background: "#fff", padding: "0 24px", height: 56, borderBottom: "1px solid #f0f0f0" }}>
+    <Layout.Header style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, background: "#fff", padding: "0 16px", height: 56, borderBottom: "1px solid #f0f0f0" }}>
       <Space>
         <UserOutlined style={{ color: "#888" }} />
         <Typography.Text type="secondary">{user?.name ?? "Ops"}</Typography.Text>
