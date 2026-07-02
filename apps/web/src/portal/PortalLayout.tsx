@@ -1,18 +1,16 @@
-import { useEffect, useState } from "react";
 import { Outlet, useNavigate } from "react-router-dom";
-import { Layout, Button, Space, Typography } from "antd";
+import { Layout, Button, Grid, Typography } from "antd";
 import { LogoutOutlined, ExperimentOutlined } from "@ant-design/icons";
 import { supabaseClient } from "../lib/supabase";
 
-// Slim patient shell — no ops sidebar. Header with brand, the patient's number,
-// and logout.
+const { useBreakpoint } = Grid;
+
+// Slim patient shell — no ops sidebar. Mobile-first: sticky header, full-bleed
+// content on phones, comfortable centered column on larger screens.
 export function PortalLayout() {
   const navigate = useNavigate();
-  const [phone, setPhone] = useState<string>("");
-
-  useEffect(() => {
-    supabaseClient.auth.getUser().then(({ data }) => setPhone(data.user?.phone ?? ""));
-  }, []);
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
 
   async function logout() {
     await supabaseClient.auth.signOut();
@@ -20,24 +18,36 @@ export function PortalLayout() {
   }
 
   return (
-    <Layout style={{ minHeight: "100vh", background: "#f5f5f5" }}>
+    <Layout style={{ minHeight: "100dvh", background: "#f5f7fa" }}>
       <Layout.Header
         style={{
+          position: "sticky", top: 0, zIndex: 10, height: 56, lineHeight: "56px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
-          background: "#fff", padding: "0 24px", height: 56, borderBottom: "1px solid #f0f0f0",
+          background: "#fff", padding: `0 ${isMobile ? 16 : 24}px`,
+          borderBottom: "1px solid #eef0f2",
         }}
       >
-        <Space>
-          <ExperimentOutlined style={{ color: "#1677ff" }} />
-          <Typography.Text strong>Cadabams Diagnostics</Typography.Text>
-          <Typography.Text type="secondary">· My Reports</Typography.Text>
-        </Space>
-        <Space>
-          {phone && <Typography.Text type="secondary">{phone}</Typography.Text>}
-          <Button size="small" icon={<LogoutOutlined />} onClick={logout}>Logout</Button>
-        </Space>
+        <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <ExperimentOutlined style={{ color: "#1677ff", fontSize: 18 }} />
+          <Typography.Text strong style={{ fontSize: 16 }}>My Reports</Typography.Text>
+        </span>
+        <Button
+          icon={<LogoutOutlined />}
+          onClick={logout}
+          shape={isMobile ? "circle" : "default"}
+          aria-label="Log out"
+        >
+          {isMobile ? null : "Logout"}
+        </Button>
       </Layout.Header>
-      <Layout.Content style={{ maxWidth: 960, width: "100%", margin: "0 auto", padding: 24 }}>
+      <Layout.Content
+        style={{
+          width: "100%", maxWidth: 760, margin: "0 auto",
+          padding: isMobile
+            ? "12px 12px calc(24px + env(safe-area-inset-bottom))"
+            : "24px 24px 48px",
+        }}
+      >
         <Outlet />
       </Layout.Content>
     </Layout>

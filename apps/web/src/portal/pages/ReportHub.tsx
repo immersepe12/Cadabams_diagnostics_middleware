@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Card, Table, Tag, Button, Space, Typography, Input, Empty, Spin, message } from "antd";
+import { Card, Tag, Button, Typography, Input, Empty, Spin, Collapse, message } from "antd";
 import { FileTextOutlined, FilePdfOutlined } from "@ant-design/icons";
 import { supabaseClient } from "../../lib/supabase";
 import { getReportPdfUrl } from "../lib/portalApi";
@@ -8,7 +8,8 @@ import { getReportPdfUrl } from "../lib/portalApi";
 // Longitudinal report hub. Reads `reports` directly — RLS scopes the rows to the
 // signed-in patient's mobile. Reports are append-only, so the same test across
 // visits (and amendments) yields multiple rows; we group by test and show the
-// latest first with the full history beneath.
+// latest first with the full history collapsed beneath. Mobile-first: one column
+// of cards, big tap targets, no data tables.
 
 type Report = {
   id: string;
@@ -27,6 +28,8 @@ function fmtDate(v: string | null) {
   if (!v) return "—";
   return new Intl.DateTimeFormat("en-IN", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(v));
 }
+const hasStructured = (r: Report) => Array.isArray(r.structured_values) && r.structured_values.length > 0;
+const hasPdf = (r: Report) => !!(r.pdf_blob_ref || r.report_url);
 
 export function ReportHub() {
   const navigate = useNavigate();
@@ -74,89 +77,104 @@ export function ReportHub() {
     }
   }
 
-  function hasStructured(r: Report) {
-    return Array.isArray(r.structured_values) && r.structured_values.length > 0;
-  }
-  function hasPdf(r: Report) {
-    return !!(r.pdf_blob_ref || r.report_url);
+  function primaryActions(r: Report) {
+    return (
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        {hasPdf(r) && (
+          <Button type="primary" size="large" icon={<FilePdfOutlined />} loading={opening === r.id}
+            onClick={() => openPdf(r)} style={{ flex: 1 }}>
+            Open PDF
+          </Button>
+        )}
+        {hasStructured(r) && (
+          <Button size="large" icon={<FileTextOutlined />} onClick={() => navigate(`/portal/reports/${r.id}`)}
+            style={{ flex: hasPdf(r) ? "0 0 auto" : 1 }}>
+            Results
+          </Button>
+        )}
+      </div>
+    );
   }
 
-  if (loading) return <div style={{ display: "grid", placeItems: "center", height: "50vh" }}><Spin /></div>;
+  if (loading) return <div style={{ display: "grid", placeItems: "center", height: "50vh" }}><Spin size="large" /></div>;
 
   return (
     <div>
-      <Space style={{ width: "100%", justifyContent: "space-between", marginBottom: 16 }} wrap>
-        <Typography.Title level={3} style={{ margin: 0 }}>My Reports</Typography.Title>
-        <Input.Search
-          placeholder="Filter by test name"
-          allowClear
-          style={{ maxWidth: 280 }}
-          onChange={(e) => setQ(e.target.value)}
-        />
-      </Space>
+      <Typography.Title level={4} style={{ margin: "0 0 12px" }}>My Reports</Typography.Title>
+      <Input.Search
+        placeholder="Search reports"
+        allowClear
+        size="large"
+        style={{ marginBottom: 16 }}
+        onChange={(e) => setQ(e.target.value)}
+      />
 
       {groups.length === 0 ? (
-        <Empty description="No reports yet" style={{ marginTop: 64 }} />
+        <Empty description={q ? "No matching reports" : "No reports yet"} style={{ marginTop: 64 }} />
       ) : (
         groups.map((versions) => {
           const latest = versions[0];
+          const earlier = versions.slice(1);
           return (
             <Card
               key={latest.crelio_test_id ?? latest.test_name ?? latest.id}
-              style={{ marginBottom: 16 }}
-              title={
-                <Space>
-                  <span>{latest.test_name ?? "Report"}</span>
-                  {latest.is_amended && <Tag color="orange">amended</Tag>}
-                </Space>
-              }
-              extra={<Typography.Text type="secondary">{fmtDate(latest.reported_at ?? latest.created_at)}</Typography.Text>}
+              style={{ marginBottom: 12, borderRadius: 12 }}
+              styles={{ body: { padding: 16 } }}
             >
-              <Table<Report>
-                dataSource={versions}
-                rowKey="id"
-                size="small"
-                pagination={false}
-                showHeader={versions.length > 1}
-              >
-                <Table.Column<Report>
-                  title="Reported"
-                  dataIndex="reported_at"
-                  render={(v: string | null, r) => fmtDate(v ?? r.created_at)}
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+                <div style={{ minWidth: 0 }}>
+                  <Typography.Text strong style={{ fontSize: 16, display: "block" }}>
+                    {latest.test_name ?? "Report"}
+                  </Typography.Text>
+                  <Typography.Text type="secondary" style={{ fontSize: 13 }}>
+                    {fmtDate(latest.reported_at ?? latest.created_at)}
+                    {latest.signing_doctor ? ` · ${latest.signing_doctor}` : ""}
+                  </Typography.Text>
+                </div>
+                {latest.is_amended && <Tag color="orange" style={{ margin: 0 }}>amended</Tag>}
+              </div>
+
+              {primaryActions(latest)}
+
+              {earlier.length > 0 && (
+                <Collapse
+                  ghost
+                  size="small"
+                  style={{ marginTop: 4 }}
+                  items={[{
+                    key: "history",
+                    label: `${earlier.length} earlier report${earlier.length > 1 ? "s" : ""}`,
+                    children: (
+                      <div>
+                        {earlier.map((v) => (
+                          <div key={v.id} style={{
+                            display: "flex", justifyContent: "space-between", alignItems: "center",
+                            gap: 8, padding: "10px 0", borderTop: "1px solid #f0f0f0",
+                          }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div style={{ fontSize: 14 }}>
+                                {fmtDate(v.reported_at ?? v.created_at)}
+                                {v.is_amended && <Tag color="orange" style={{ marginLeft: 6 }}>amended</Tag>}
+                              </div>
+                              {v.signing_doctor && (
+                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>{v.signing_doctor}</Typography.Text>
+                              )}
+                            </div>
+                            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+                              {hasStructured(v) && (
+                                <Button size="middle" icon={<FileTextOutlined />} onClick={() => navigate(`/portal/reports/${v.id}`)} />
+                              )}
+                              {hasPdf(v) && (
+                                <Button size="middle" type="primary" icon={<FilePdfOutlined />} loading={opening === v.id} onClick={() => openPdf(v)} />
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ),
+                  }]}
                 />
-                <Table.Column<Report>
-                  title="Reporting doctor"
-                  dataIndex="signing_doctor"
-                  render={(v: string | null) => v ?? "—"}
-                />
-                <Table.Column<Report>
-                  title=""
-                  width={70}
-                  render={(_, r) => (r.is_amended ? <Tag color="orange">amended</Tag> : null)}
-                />
-                <Table.Column<Report>
-                  title="Actions"
-                  width={200}
-                  align="right"
-                  render={(_, r) => (
-                    <Space>
-                      {hasStructured(r) && (
-                        <Button size="small" icon={<FileTextOutlined />} onClick={() => navigate(`/portal/reports/${r.id}`)}>
-                          Results
-                        </Button>
-                      )}
-                      {hasPdf(r) && (
-                        <Button
-                          size="small" type="primary" icon={<FilePdfOutlined />}
-                          loading={opening === r.id} onClick={() => openPdf(r)}
-                        >
-                          PDF
-                        </Button>
-                      )}
-                    </Space>
-                  )}
-                />
-              </Table>
+              )}
             </Card>
           );
         })

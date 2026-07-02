@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Card, Button, Space, Typography, Tag, Spin, Empty, message } from "antd";
+import { Card, Button, Typography, Tag, Spin, Empty, message } from "antd";
 import { ArrowLeftOutlined, FilePdfOutlined } from "@ant-design/icons";
 import { supabaseClient } from "../../lib/supabase";
 import { getReportPdfUrl } from "../lib/portalApi";
 import { AnalyteTable, type Analyte } from "../../components/AnalyteTable";
 
 // Structured view of one report. The fetch is RLS-scoped, so a report the
-// patient doesn't own simply returns no row (→ "not found").
+// patient doesn't own simply returns no row (→ "not found"). Mobile-first.
 
 type Report = {
   id: string;
@@ -61,44 +61,47 @@ export function ReportDetail() {
     }
   }
 
-  if (loading) return <div style={{ display: "grid", placeItems: "center", height: "50vh" }}><Spin /></div>;
+  if (loading) return <div style={{ display: "grid", placeItems: "center", height: "50vh" }}><Spin size="large" /></div>;
+
+  const pdf = !!(report && (report.pdf_blob_ref || report.report_url));
+  const structured = !!(report && Array.isArray(report.structured_values) && report.structured_values.length > 0);
 
   return (
     <div>
-      <Space style={{ marginBottom: 16 }}>
-        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate("/portal")} />
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          {report?.test_name ?? "Report"}
-        </Typography.Title>
-        {report?.is_amended && <Tag color="orange">amended</Tag>}
-      </Space>
+      <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate("/portal")} style={{ paddingLeft: 0, marginBottom: 8 }}>
+        Back
+      </Button>
 
       {!report ? (
         <Empty description="Report not found" style={{ marginTop: 64 }} />
       ) : (
-        <Card
-          title={
-            <Space split="·">
-              <span>{fmtDate(report.reported_at ?? report.created_at)}</span>
-              {report.signing_doctor && <Typography.Text type="secondary">{report.signing_doctor}</Typography.Text>}
-            </Space>
-          }
-          extra={
-            (report.pdf_blob_ref || report.report_url) && (
-              <Button type="primary" icon={<FilePdfOutlined />} loading={opening} onClick={openPdf}>
-                Open PDF
-              </Button>
-            )
-          }
-        >
-          {Array.isArray(report.structured_values) && report.structured_values.length > 0 ? (
-            <AnalyteTable values={report.structured_values} />
-          ) : (
+        <>
+          <div style={{ marginBottom: 16 }}>
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              {report.test_name ?? "Report"}{" "}
+              {report.is_amended && <Tag color="orange" style={{ verticalAlign: "middle" }}>amended</Tag>}
+            </Typography.Title>
             <Typography.Text type="secondary">
-              No structured values for this report. Use “Open PDF” to view the full report.
+              {fmtDate(report.reported_at ?? report.created_at)}
+              {report.signing_doctor ? ` · ${report.signing_doctor}` : ""}
             </Typography.Text>
+          </div>
+
+          {pdf && (
+            <Button type="primary" size="large" block icon={<FilePdfOutlined />} loading={opening}
+              onClick={openPdf} style={{ marginBottom: 16 }}>
+              Open full report (PDF)
+            </Button>
           )}
-        </Card>
+
+          {structured ? (
+            <Card title="Results" styles={{ body: { padding: 12 } }} style={{ borderRadius: 12 }}>
+              <AnalyteTable values={report.structured_values ?? []} />
+            </Card>
+          ) : !pdf ? (
+            <Empty description="This report will appear here once it’s ready." style={{ marginTop: 48 }} />
+          ) : null}
+        </>
       )}
     </div>
   );
