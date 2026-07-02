@@ -1,10 +1,12 @@
 import { useTable, List } from "@refinedev/antd";
-import { Table, Input, Button, Space, Alert } from "antd";
+import { Input, Button, Space, Alert } from "antd";
+import type { ColumnsType } from "antd/es/table";
 import { SearchOutlined, UserOutlined } from "@ant-design/icons";
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState } from "react";
 import type { CrudFilters } from "@refinedev/core";
 import { DateFilter, type DateRange } from "../../components/DateFilter";
+import { GroupBySelect, GroupedTable, dayKey, monthKey, type GroupByOption } from "../../components/GroupedList";
 
 type Patient = {
   mobile: string;
@@ -19,10 +21,17 @@ function fmtDate(v: string) {
   }).format(new Date(v));
 }
 
+const GROUPS: GroupByOption<Patient>[] = [
+  { value: "visit_day", label: "Last visit (day)", getKey: (r) => dayKey(r.last_visit) },
+  { value: "visit_month", label: "Last visit (month)", getKey: (r) => monthKey(r.last_visit) },
+  { value: "bills", label: "Bill count", getKey: (r) => `${r.bill_count} bill${r.bill_count === 1 ? "" : "s"}` },
+];
+
 export function PatientList() {
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [date, setDate] = useState<DateRange>(null);
+  const [groupKey, setGroupKey] = useState<string | null>(null);
 
   // Reads the `patients` SQL view (orders grouped by phone) — server-paginated.
   const { tableProps, setFilters } = useTable<Patient>({
@@ -47,6 +56,34 @@ export function PatientList() {
     setFilters(f, "replace");
   }, [query, date]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const columns: ColumnsType<Patient> = [
+    {
+      title: "Patient",
+      render: (_, row) => (
+        <Space>
+          <UserOutlined style={{ color: "#888" }} />
+          <Space direction="vertical" size={0}>
+            <span>{row.name ?? <em style={{ color: "#aaa" }}>No name</em>}</span>
+            <span style={{ color: "#888", fontSize: 11 }}>{row.mobile}</span>
+          </Space>
+        </Space>
+      ),
+    },
+    { dataIndex: "bill_count", title: "Bills", width: 80, align: "center", sorter: true },
+    {
+      dataIndex: "last_visit", title: "Last Visit", width: 130,
+      render: (v: string) => fmtDate(v), sorter: true, defaultSortOrder: "descend",
+    },
+    {
+      width: 80,
+      render: (_, row) => (
+        <Button size="small" onClick={(e) => { e.stopPropagation(); navigate(`/patients/${row.mobile}`); }}>
+          View
+        </Button>
+      ),
+    },
+  ];
+
   return (
     <List title="Patients">
       <Alert
@@ -66,59 +103,17 @@ export function PatientList() {
           allowClear
         />
         <DateFilter onChange={setDate} />
+        <GroupBySelect value={groupKey} onChange={setGroupKey} options={GROUPS} />
       </Space>
 
-      <Table<Patient>
-        {...tableProps}
+      <GroupedTable<Patient>
+        tableProps={tableProps}
+        columns={columns}
         rowKey="mobile"
-        size="small"
-        scroll={{ x: "max-content" }}
+        groupBy={GROUPS.find((g) => g.value === groupKey) ?? null}
         onRow={(row) => ({ onClick: () => navigate(`/patients/${row.mobile}`) })}
-        style={{ cursor: "pointer" }}
-        pagination={{ ...tableProps.pagination, showSizeChanger: true, showTotal: (t) => `${t} patients` }}
-      >
-        <Table.Column<Patient>
-          title="Patient"
-          render={(_, row) => (
-            <Space>
-              <UserOutlined style={{ color: "#888" }} />
-              <Space direction="vertical" size={0}>
-                <span>{row.name ?? <em style={{ color: "#aaa" }}>No name</em>}</span>
-                <span style={{ color: "#888", fontSize: 11 }}>{row.mobile}</span>
-              </Space>
-            </Space>
-          )}
-        />
-        <Table.Column<Patient>
-          dataIndex="bill_count"
-          title="Bills"
-          width={80}
-          align="center"
-          sorter
-        />
-        <Table.Column<Patient>
-          dataIndex="last_visit"
-          title="Last Visit"
-          width={130}
-          render={(v: string) => fmtDate(v)}
-          sorter
-          defaultSortOrder="descend"
-        />
-        <Table.Column<Patient>
-          width={80}
-          render={(_, row) => (
-            <Button
-              size="small"
-              onClick={(e) => {
-                e.stopPropagation();
-                navigate(`/patients/${row.mobile}`);
-              }}
-            >
-              View
-            </Button>
-          )}
-        />
-      </Table>
+        totalLabel="patients"
+      />
     </List>
   );
 }

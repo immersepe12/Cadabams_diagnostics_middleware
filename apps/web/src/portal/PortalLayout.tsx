@@ -2,6 +2,7 @@ import { Outlet, useNavigate } from "react-router-dom";
 import { Layout, Button, Grid, Typography } from "antd";
 import { LogoutOutlined, ExperimentOutlined } from "@ant-design/icons";
 import { supabaseClient } from "../lib/supabase";
+import { BRAND } from "../theme";
 
 const { useBreakpoint } = Grid;
 
@@ -18,17 +19,17 @@ export function PortalLayout() {
   }
 
   return (
-    <Layout style={{ minHeight: "100dvh", background: "#f5f7fa" }}>
+    <Layout style={{ minHeight: "100dvh", background: BRAND.bgLayout }}>
       <Layout.Header
         style={{
           position: "sticky", top: 0, zIndex: 10, height: 56, lineHeight: "56px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
           background: "#fff", padding: `0 ${isMobile ? 16 : 24}px`,
-          borderBottom: "1px solid #eef0f2",
+          borderBottom: `1px solid ${BRAND.border}`,
         }}
       >
         <span style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-          <ExperimentOutlined style={{ color: "#1677ff", fontSize: 18 }} />
+          <ExperimentOutlined style={{ color: BRAND.primary, fontSize: 18 }} />
           <Typography.Text strong style={{ fontSize: 16 }}>My Reports</Typography.Text>
         </span>
         <Button

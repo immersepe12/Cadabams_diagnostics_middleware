@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Card, Form, Input, Button, Typography, message } from "antd";
 import { ExperimentOutlined } from "@ant-design/icons";
 import { supabaseClient } from "../lib/supabase";
+import { BRAND } from "../theme";
 
 // Patient login: phone OTP via Supabase native phone auth. Delivery goes through
 // the Supabase "Send SMS" hook → Fyno. This bypasses Refine's authProvider
@@ -58,11 +59,11 @@ export function PortalLogin() {
   }
 
   return (
-    <div style={{ minHeight: "100dvh", display: "grid", placeItems: "center", background: "#f5f7fa", padding: 16 }}>
+    <div style={{ minHeight: "100dvh", display: "grid", placeItems: "center", background: BRAND.bgLayout, padding: 16 }}>
       <Card style={{ width: "100%", maxWidth: 400, borderRadius: 14 }} styles={{ body: { padding: 24 } }}>
         <div style={{ textAlign: "center", marginBottom: 20 }}>
-          <div style={{ width: 52, height: 52, borderRadius: 14, background: "#e6f0ff", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
-            <ExperimentOutlined style={{ color: "#1677ff", fontSize: 26 }} />
+          <div style={{ width: 52, height: 52, borderRadius: 14, background: BRAND.primarySoft, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+            <ExperimentOutlined style={{ color: BRAND.primary, fontSize: 26 }} />
           </div>
           <Typography.Title level={3} style={{ margin: "12px 0 2px" }}>My Reports</Typography.Title>
           <Typography.Text type="secondary">Cadabams Diagnostics</Typography.Text>

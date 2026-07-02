@@ -1,10 +1,12 @@
 import { useTable, List } from "@refinedev/antd";
-import { Table, Tag, Input, Select, Row, Col, Space, Button } from "antd";
+import { Tag, Input, Select, Row, Col, Space, Button } from "antd";
+import type { ColumnsType } from "antd/es/table";
 import { SearchOutlined, PlusOutlined } from "@ant-design/icons";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { CrudFilters } from "@refinedev/core";
 import { DateFilter, type DateRange } from "../../components/DateFilter";
+import { GroupBySelect, GroupedTable, dayKey, type GroupByOption } from "../../components/GroupedList";
 
 const CENTRES = [
   { value: "KYL", label: "Kalyan Nagar" },
@@ -27,12 +29,13 @@ const STATUS_COLOR: Record<string, string> = {
   collected: "orange",
   accessioned: "gold",
   report_generated: "cyan",
+  completed: "geekblue",
   report_sent: "green",
   cancelled: "red",
   rejected: "red",
 };
 
-const STATUS_ORDER = ["booked", "collected", "accessioned", "report_generated", "report_sent"];
+const STATUS_ORDER = ["booked", "collected", "accessioned", "report_generated", "completed", "report_sent"];
 
 function aggStatus(items: { status: string }[]): string {
   const active = items.filter((i) => !["cancelled", "rejected"].includes(i.status));
@@ -48,6 +51,67 @@ function fmtDate(v: string) {
   }).format(new Date(v));
 }
 
+type BillRow = {
+  id: string;
+  order_number: string;
+  patient_name: string | null;
+  patient_mobile: string | null;
+  channel: string;
+  centre_id: string;
+  created_at: string;
+  centres: { display_name: string } | null;
+  order_items: { id: string; status: string }[];
+};
+
+const columns: ColumnsType<BillRow> = [
+  {
+    dataIndex: "order_number", title: "Order #", width: 150,
+    render: (v: string) => <code style={{ fontSize: 12 }}>{v}</code>,
+  },
+  {
+    dataIndex: "patient_name", title: "Patient", width: 180,
+    render: (name: string | null, row) => (
+      <Space direction="vertical" size={0}>
+        <span>{name ?? <em style={{ color: "#aaa" }}>No name</em>}</span>
+        {row.patient_mobile && <span style={{ color: "#888", fontSize: 11 }}>{row.patient_mobile}</span>}
+      </Space>
+    ),
+  },
+  {
+    dataIndex: "centres", title: "Centre", width: 140,
+    render: (c: BillRow["centres"]) => c?.display_name ?? "—",
+  },
+  {
+    dataIndex: "channel", title: "Channel", width: 110,
+    render: (v: string) => (
+      <Tag color={v === "corporate" ? "purple" : v === "d2c" ? "blue" : "default"}>{v}</Tag>
+    ),
+  },
+  {
+    dataIndex: "order_items", title: "Status", width: 155,
+    render: (items: { status: string }[]) => {
+      const s = aggStatus(items ?? []);
+      return <Tag color={STATUS_COLOR[s] ?? "default"}>{s.replace(/_/g, " ")}</Tag>;
+    },
+  },
+  {
+    dataIndex: "order_items", key: "tests", title: "Tests", width: 60, align: "center",
+    render: (items: unknown[]) => items?.length ?? 0,
+  },
+  {
+    dataIndex: "created_at", title: "Date", width: 160,
+    render: (v: string) => fmtDate(v),
+    sorter: true,
+  },
+];
+
+const GROUPS: GroupByOption<BillRow>[] = [
+  { value: "centre", label: "Centre", getKey: (r) => r.centres?.display_name ?? r.centre_id ?? "—" },
+  { value: "channel", label: "Channel", getKey: (r) => r.channel },
+  { value: "status", label: "Status", getKey: (r) => aggStatus(r.order_items ?? []).replace(/_/g, " ") },
+  { value: "date", label: "Date", getKey: (r) => dayKey(r.created_at) },
+];
+
 export function BillList() {
   const navigate = useNavigate();
   const [q, setQ] = useState("");
@@ -55,8 +119,9 @@ export function BillList() {
   const [channel, setChannel] = useState<string>();
   const [status, setStatus] = useState<string>();
   const [date, setDate] = useState<DateRange>(null);
+  const [groupKey, setGroupKey] = useState<string | null>(null);
 
-  const { tableProps, setFilters } = useTable({
+  const { tableProps, setFilters } = useTable<BillRow>({
     resource: "orders",
     // Use an inner join only when filtering by status (so it filters the bills),
     // otherwise a plain embed so bills with no items still show.
@@ -121,74 +186,19 @@ export function BillList() {
         <Col>
           <DateFilter onChange={setDate} />
         </Col>
+        <Col>
+          <GroupBySelect value={groupKey} onChange={setGroupKey} options={GROUPS} />
+        </Col>
       </Row>
 
-      <Table
-        {...tableProps}
+      <GroupedTable<BillRow>
+        tableProps={tableProps}
+        columns={columns}
         rowKey="id"
-        size="small"
-        scroll={{ x: "max-content" }}
+        groupBy={GROUPS.find((g) => g.value === groupKey) ?? null}
         onRow={(row) => ({ onClick: () => navigate(`/bills/${row.id}`) })}
-        style={{ cursor: "pointer" }}
-        pagination={{ ...tableProps.pagination, showSizeChanger: true, showTotal: (t) => `${t} bills` }}
-      >
-        <Table.Column
-          dataIndex="order_number"
-          title="Order #"
-          width={150}
-          render={(v) => <code style={{ fontSize: 12 }}>{v}</code>}
-        />
-        <Table.Column
-          dataIndex="patient_name"
-          title="Patient"
-          width={180}
-          render={(name: string | null, row: Record<string, unknown>) => (
-            <Space direction="vertical" size={0}>
-              <span>{name ?? <em style={{ color: "#aaa" }}>No name</em>}</span>
-              {typeof row.patient_mobile === "string" && (
-                <span style={{ color: "#888", fontSize: 11 }}>{row.patient_mobile}</span>
-              )}
-            </Space>
-          )}
-        />
-        <Table.Column
-          dataIndex="centres"
-          title="Centre"
-          width={140}
-          render={(c: { display_name: string } | null) => c?.display_name ?? "—"}
-        />
-        <Table.Column
-          dataIndex="channel"
-          title="Channel"
-          width={110}
-          render={(v: string) => (
-            <Tag color={v === "corporate" ? "purple" : v === "d2c" ? "blue" : "default"}>{v}</Tag>
-          )}
-        />
-        <Table.Column
-          dataIndex="order_items"
-          title="Status"
-          width={155}
-          render={(items: { status: string }[]) => {
-            const s = aggStatus(items ?? []);
-            return <Tag color={STATUS_COLOR[s] ?? "default"}>{s.replace(/_/g, " ")}</Tag>;
-          }}
-        />
-        <Table.Column
-          dataIndex="order_items"
-          title="Tests"
-          width={60}
-          align="center"
-          render={(items: unknown[]) => items?.length ?? 0}
-        />
-        <Table.Column
-          dataIndex="created_at"
-          title="Date"
-          width={160}
-          render={(v: string) => fmtDate(v)}
-          sorter
-        />
-      </Table>
+        totalLabel="bills"
+      />
     </List>
   );
 }

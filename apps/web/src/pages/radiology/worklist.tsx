@@ -1,11 +1,13 @@
 import { useTable, List } from "@refinedev/antd";
-import { Table, Tag, Select, Row, Col, Space, Button, Upload, message, Tooltip } from "antd";
+import { Tag, Select, Row, Col, Space, Button, Upload, message, Tooltip } from "antd";
+import type { ColumnsType } from "antd/es/table";
 import { UploadOutlined, LinkOutlined, CheckOutlined, SendOutlined, AudioOutlined } from "@ant-design/icons";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { CrudFilters } from "@refinedev/core";
 import type { UploadRequestOption } from "rc-upload/lib/interface";
 import { DateFilter, type DateRange } from "../../components/DateFilter";
+import { GroupBySelect, GroupedTable, dayKey, type GroupByOption } from "../../components/GroupedList";
 import { supabaseClient } from "../../lib/supabase";
 import { sendReportToPatient, openReporter } from "../../lib/api";
 
@@ -37,6 +39,12 @@ type WLRow = {
   patient_mobile: string | null; created_at: string;
 };
 
+const GROUPS: GroupByOption<WLRow>[] = [
+  { value: "status", label: "Status", getKey: (r) => r.status.replace(/_/g, " ") },
+  { value: "centre", label: "Centre", getKey: (r) => CENTRE[r.centre_id] ?? r.centre_id },
+  { value: "date", label: "Date", getKey: (r) => dayKey(r.created_at) },
+];
+
 export function Worklist({ modality, title }: { modality: "us" | "ctmri" | "xray"; title: string }) {
   const navigate = useNavigate();
   const { tableProps, setFilters, tableQueryResult } = useTable<WLRow>({
@@ -53,6 +61,7 @@ export function Worklist({ modality, title }: { modality: "us" | "ctmri" | "xray
   const [status, setStatus] = useState("pending");
   const [centre, setCentre] = useState<string>();
   const [date, setDate] = useState<DateRange>(null);
+  const [groupKey, setGroupKey] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
@@ -130,6 +139,76 @@ export function Worklist({ modality, title }: { modality: "us" | "ctmri" | "xray
     else message.error(error?.message ?? "Could not open report");
   }
 
+  const columns: ColumnsType<WLRow> = [
+    {
+      title: "Scan",
+      render: (_, r) => (
+        <Space direction="vertical" size={0}>
+          <span>{r.test_name}</span>
+          {r.department && <span style={{ color: "#aaa", fontSize: 11 }}>{r.department}</span>}
+        </Space>
+      ),
+    },
+    {
+      dataIndex: "status", title: "Status", width: 130,
+      render: (v: string) => <Tag color={STATUS_COLOR[v] ?? "default"}>{v?.replace(/_/g, " ")}</Tag>,
+    },
+    {
+      title: "Patient", width: 170,
+      render: (_, r) => (
+        <Space direction="vertical" size={0}>
+          <span>{r.patient_name ?? <em style={{ color: "#aaa" }}>No name</em>}</span>
+          {r.patient_mobile && <span style={{ color: "#888", fontSize: 11 }}>{r.patient_mobile}</span>}
+        </Space>
+      ),
+    },
+    { title: "Centre", width: 130, render: (_, r) => CENTRE[r.centre_id] ?? r.centre_id },
+    { dataIndex: "created_at", title: "Booked", width: 130, render: (v) => fmtDate(v) },
+    {
+      title: "Bill", width: 120,
+      render: (_, r) => (
+        <Button size="small" type="link" style={{ padding: 0 }} onClick={() => navigate(`/bills/${r.order_id}`)}>
+          <code style={{ fontSize: 11 }}>{r.order_number}</code>
+        </Button>
+      ),
+    },
+    {
+      title: "Report", width: 300,
+      render: (_, r) => {
+        const terminal = ["cancelled", "rejected"].includes(r.status);
+        if (terminal) return <Tag color="red">{r.status}</Tag>;
+        const canReport = modality === "ctmri" && !["completed", "report_sent"].includes(r.status);
+        return (
+          <Space wrap>
+            {canReport && (
+              <Tooltip title="Dictate the report in the radiology scribe tool">
+                <Button size="small" type="primary" ghost icon={<AudioOutlined />}
+                  loading={busy === r.id} onClick={() => openReporterFor(r)}>Reporter</Button>
+              </Tooltip>
+            )}
+            <Upload showUploadList={false} accept=".pdf,.jpg,.jpeg,.png" customRequest={(o) => handleUpload(o, r)}>
+              <Button size="small" icon={<UploadOutlined />}>{r.report_url ? "Replace" : "Upload"}</Button>
+            </Upload>
+            {r.report_url && (
+              <Tooltip title="View report">
+                <Button size="small" icon={<LinkOutlined />} onClick={() => openReport(r.report_url!)} />
+              </Tooltip>
+            )}
+            {r.report_url && r.status !== "completed" && r.status !== "report_sent" && (
+              <Button size="small" type="primary" icon={<CheckOutlined />}
+                loading={busy === r.id} onClick={() => markCompleted(r)}>Complete</Button>
+            )}
+            {r.status === "completed" && (
+              <Button size="small" icon={<SendOutlined />} loading={busy === r.id}
+                onClick={() => sendToPatient(r)}>Send</Button>
+            )}
+            {r.status === "report_sent" && <Tag color="green">sent</Tag>}
+          </Space>
+        );
+      },
+    },
+  ];
+
   return (
     <List title={`${title} — Worklist`}>
       <Row gutter={[8, 8]} style={{ marginBottom: 16 }}>
@@ -144,64 +223,16 @@ export function Worklist({ modality, title }: { modality: "us" | "ctmri" | "xray
         </Col>
         <Col><Select placeholder="Centre" allowClear style={{ width: 150 }} value={centre} onChange={setCentre} options={CENTRE_OPTS} /></Col>
         <Col><DateFilter onChange={setDate} /></Col>
+        <Col><GroupBySelect value={groupKey} onChange={setGroupKey} options={GROUPS} /></Col>
       </Row>
 
-      <Table<WLRow> {...tableProps} rowKey="id" size="small" scroll={{ x: "max-content" }}
-        pagination={{ ...tableProps.pagination, showSizeChanger: true, showTotal: (t) => `${t} scans` }}>
-        <Table.Column<WLRow> title="Scan" render={(_, r) => (
-          <Space direction="vertical" size={0}>
-            <span>{r.test_name}</span>
-            {r.department && <span style={{ color: "#aaa", fontSize: 11 }}>{r.department}</span>}
-          </Space>
-        )} />
-        <Table.Column<WLRow> dataIndex="status" title="Status" width={130}
-          render={(v: string) => <Tag color={STATUS_COLOR[v] ?? "default"}>{v?.replace(/_/g, " ")}</Tag>} />
-        <Table.Column<WLRow> title="Patient" width={170} render={(_, r) => (
-          <Space direction="vertical" size={0}>
-            <span>{r.patient_name ?? <em style={{ color: "#aaa" }}>No name</em>}</span>
-            {r.patient_mobile && <span style={{ color: "#888", fontSize: 11 }}>{r.patient_mobile}</span>}
-          </Space>
-        )} />
-        <Table.Column<WLRow> title="Centre" width={130} render={(_, r) => CENTRE[r.centre_id] ?? r.centre_id} />
-        <Table.Column<WLRow> dataIndex="created_at" title="Booked" width={130} render={(v) => fmtDate(v)} />
-        <Table.Column<WLRow> title="Bill" width={120} render={(_, r) => (
-          <Button size="small" type="link" style={{ padding: 0 }} onClick={() => navigate(`/bills/${r.order_id}`)}>
-            <code style={{ fontSize: 11 }}>{r.order_number}</code>
-          </Button>
-        )} />
-        <Table.Column<WLRow> title="Report" width={280} render={(_, r) => {
-          const terminal = ["cancelled", "rejected"].includes(r.status);
-          if (terminal) return <Tag color="red">{r.status}</Tag>;
-          const canReport = modality === "ctmri" && !["completed", "report_sent"].includes(r.status);
-          return (
-            <Space wrap>
-              {canReport && (
-                <Tooltip title="Dictate the report in the radiology scribe tool">
-                  <Button size="small" type="primary" ghost icon={<AudioOutlined />}
-                    loading={busy === r.id} onClick={() => openReporterFor(r)}>Reporter</Button>
-                </Tooltip>
-              )}
-              <Upload showUploadList={false} accept=".pdf,.jpg,.jpeg,.png" customRequest={(o) => handleUpload(o, r)}>
-                <Button size="small" icon={<UploadOutlined />}>{r.report_url ? "Replace" : "Upload"}</Button>
-              </Upload>
-              {r.report_url && (
-                <Tooltip title="View report">
-                  <Button size="small" icon={<LinkOutlined />} onClick={() => openReport(r.report_url!)} />
-                </Tooltip>
-              )}
-              {r.report_url && r.status !== "completed" && r.status !== "report_sent" && (
-                <Button size="small" type="primary" icon={<CheckOutlined />}
-                  loading={busy === r.id} onClick={() => markCompleted(r)}>Complete</Button>
-              )}
-              {r.status === "completed" && (
-                <Button size="small" icon={<SendOutlined />} loading={busy === r.id}
-                  onClick={() => sendToPatient(r)}>Send</Button>
-              )}
-              {r.status === "report_sent" && <Tag color="green">sent</Tag>}
-            </Space>
-          );
-        }} />
-      </Table>
+      <GroupedTable<WLRow>
+        tableProps={tableProps}
+        columns={columns}
+        rowKey="id"
+        groupBy={GROUPS.find((g) => g.value === groupKey) ?? null}
+        totalLabel="scans"
+      />
     </List>
   );
 }

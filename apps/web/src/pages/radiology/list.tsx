@@ -1,13 +1,16 @@
 import { useTable, List } from "@refinedev/antd";
-import { Table, Tag, Select, Row, Col, Space, Button } from "antd";
+import { Tag, Select, Row, Col, Space, Button } from "antd";
+import type { ColumnsType } from "antd/es/table";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { CrudFilters } from "@refinedev/core";
 import { DateFilter, type DateRange } from "../../components/DateFilter";
+import { GroupBySelect, GroupedTable, dayKey, type GroupByOption } from "../../components/GroupedList";
 
 const STATUS_COLOR: Record<string, string> = {
   booked: "blue", collected: "orange", accessioned: "gold",
-  report_generated: "cyan", report_sent: "green", cancelled: "red", rejected: "red",
+  report_generated: "cyan", completed: "geekblue", report_sent: "green",
+  cancelled: "red", rejected: "red",
 };
 
 const PENDING = ["booked", "collected", "accessioned"];
@@ -25,15 +28,22 @@ function fmtDate(v: string | null | undefined) {
   }).format(new Date(v));
 }
 
-type Row = {
+type ScanRow = {
   id: string; order_id: string; test_name: string; status: string;
   department: string | null; centre_id: string; order_number: string;
   patient_name: string | null; patient_mobile: string | null; created_at: string;
 };
 
+const GROUPS: GroupByOption<ScanRow>[] = [
+  { value: "status", label: "Status", getKey: (r) => r.status.replace(/_/g, " ") },
+  { value: "centre", label: "Centre", getKey: (r) => CENTRE[r.centre_id] ?? r.centre_id },
+  { value: "department", label: "Department", getKey: (r) => r.department ?? "—" },
+  { value: "date", label: "Date", getKey: (r) => dayKey(r.created_at) },
+];
+
 export function RadiologyList() {
   const navigate = useNavigate();
-  const { tableProps, setFilters } = useTable<Row>({
+  const { tableProps, setFilters } = useTable<ScanRow>({
     resource: "order_items_view",
     filters: { permanent: [{ field: "service_line", operator: "eq", value: "radiology" }] },
     sorters: { initial: [{ field: "created_at", order: "desc" }] },
@@ -42,6 +52,7 @@ export function RadiologyList() {
   const [status, setStatus] = useState("pending");
   const [centre, setCentre] = useState<string>();
   const [date, setDate] = useState<DateRange>(null);
+  const [groupKey, setGroupKey] = useState<string | null>(null);
 
   useEffect(() => {
     const f: CrudFilters = [];
@@ -55,6 +66,41 @@ export function RadiologyList() {
     }
     setFilters(f, "replace");
   }, [status, centre, date]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const columns: ColumnsType<ScanRow> = [
+    {
+      title: "Scan",
+      render: (_, r) => (
+        <Space direction="vertical" size={0}>
+          <span>{r.test_name}</span>
+          {r.department && <span style={{ color: "#aaa", fontSize: 11 }}>{r.department}</span>}
+        </Space>
+      ),
+    },
+    {
+      dataIndex: "status", title: "Status", width: 150,
+      render: (v: string) => <Tag color={STATUS_COLOR[v] ?? "default"}>{v?.replace(/_/g, " ")}</Tag>,
+    },
+    {
+      title: "Patient", width: 180,
+      render: (_, r) => (
+        <Space direction="vertical" size={0}>
+          <span>{r.patient_name ?? <em style={{ color: "#aaa" }}>No name</em>}</span>
+          {r.patient_mobile && <span style={{ color: "#888", fontSize: 11 }}>{r.patient_mobile}</span>}
+        </Space>
+      ),
+    },
+    { title: "Centre", width: 140, render: (_, r) => CENTRE[r.centre_id] ?? r.centre_id },
+    { dataIndex: "created_at", title: "Booked", width: 140, render: (v) => fmtDate(v) },
+    {
+      title: "Bill", width: 150,
+      render: (_, r) => (
+        <Button size="small" type="link" style={{ padding: 0 }} onClick={() => navigate(`/bills/${r.order_id}`)}>
+          <code style={{ fontSize: 11 }}>{r.order_number}</code>
+        </Button>
+      ),
+    },
+  ];
 
   return (
     <List title="Radiology — Scans">
@@ -71,6 +117,7 @@ export function RadiologyList() {
               { value: "booked", label: "Booked" },
               { value: "collected", label: "Collected" },
               { value: "report_generated", label: "Report ready" },
+              { value: "completed", label: "Completed" },
               { value: "report_sent", label: "Report sent" },
             ]}
           />
@@ -81,32 +128,18 @@ export function RadiologyList() {
         <Col>
           <DateFilter onChange={setDate} />
         </Col>
+        <Col>
+          <GroupBySelect value={groupKey} onChange={setGroupKey} options={GROUPS} />
+        </Col>
       </Row>
 
-      <Table<Row> {...tableProps} rowKey="id" size="small" scroll={{ x: "max-content" }}
-        pagination={{ ...tableProps.pagination, showSizeChanger: true, showTotal: (t) => `${t} scans` }}>
-        <Table.Column<Row> title="Scan" render={(_, r) => (
-          <Space direction="vertical" size={0}>
-            <span>{r.test_name}</span>
-            {r.department && <span style={{ color: "#aaa", fontSize: 11 }}>{r.department}</span>}
-          </Space>
-        )} />
-        <Table.Column<Row> dataIndex="status" title="Status" width={150}
-          render={(v: string) => <Tag color={STATUS_COLOR[v] ?? "default"}>{v?.replace(/_/g, " ")}</Tag>} />
-        <Table.Column<Row> title="Patient" width={180} render={(_, r) => (
-          <Space direction="vertical" size={0}>
-            <span>{r.patient_name ?? <em style={{ color: "#aaa" }}>No name</em>}</span>
-            {r.patient_mobile && <span style={{ color: "#888", fontSize: 11 }}>{r.patient_mobile}</span>}
-          </Space>
-        )} />
-        <Table.Column<Row> title="Centre" width={140} render={(_, r) => CENTRE[r.centre_id] ?? r.centre_id} />
-        <Table.Column<Row> dataIndex="created_at" title="Booked" width={140} render={(v) => fmtDate(v)} />
-        <Table.Column<Row> title="Bill" width={150} render={(_, r) => (
-          <Button size="small" type="link" style={{ padding: 0 }} onClick={() => navigate(`/bills/${r.order_id}`)}>
-            <code style={{ fontSize: 11 }}>{r.order_number}</code>
-          </Button>
-        )} />
-      </Table>
+      <GroupedTable<ScanRow>
+        tableProps={tableProps}
+        columns={columns}
+        rowKey="id"
+        groupBy={GROUPS.find((g) => g.value === groupKey) ?? null}
+        totalLabel="scans"
+      />
     </List>
   );
 }

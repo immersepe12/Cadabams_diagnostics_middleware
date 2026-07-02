@@ -1,6 +1,6 @@
-import { Refine, Authenticated, useLogout, useGetIdentity } from "@refinedev/core";
+import { Refine, Authenticated } from "@refinedev/core";
 import { dataProvider, liveProvider } from "@refinedev/supabase";
-import { ThemedLayoutV2, ErrorComponent, notificationProvider, AuthPage } from "@refinedev/antd";
+import { ErrorComponent, notificationProvider, AuthPage } from "@refinedev/antd";
 import routerProvider, {
   UnsavedChangesNotifier,
   DocumentTitleHandler,
@@ -12,11 +12,13 @@ import {
   FileTextOutlined,
   ExperimentOutlined,
   ScanOutlined,
-  LogoutOutlined,
 } from "@ant-design/icons";
-import { App as AntApp, Button, Layout, Space, Spin, Typography } from "antd";
+import { App as AntApp, ConfigProvider, Spin, Typography } from "antd";
 import "@refinedev/antd/dist/reset.css";
 import { useEffect, useState } from "react";
+
+import { appTheme } from "./theme";
+import { AppShell } from "./components/AppShell";
 
 import { supabaseClient } from "./lib/supabase";
 import { authProvider } from "./authProvider";
@@ -49,23 +51,10 @@ function RequireStaff({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function AppHeader() {
-  const { mutate: logout } = useLogout();
-  const { data: user } = useGetIdentity<{ name?: string }>();
-  return (
-    <Layout.Header style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 12, background: "#fff", padding: "0 16px", height: 56, borderBottom: "1px solid #f0f0f0" }}>
-      <Space>
-        <UserOutlined style={{ color: "#888" }} />
-        <Typography.Text type="secondary">{user?.name ?? "Ops"}</Typography.Text>
-        <Button size="small" icon={<LogoutOutlined />} onClick={() => logout()}>Logout</Button>
-      </Space>
-    </Layout.Header>
-  );
-}
-
 export default function App() {
   return (
     <BrowserRouter>
+      <ConfigProvider theme={appTheme}>
       <AntApp>
         <Refine
           dataProvider={dataProvider(supabaseClient)}
@@ -119,16 +108,9 @@ export default function App() {
               element={
                 <Authenticated key="protected" fallback={<CatchAllNavigate to="/login" />}>
                   <RequireStaff>
-                    <ThemedLayoutV2
-                      Header={AppHeader}
-                      Title={({ collapsed }) => (
-                        <span style={{ fontWeight: 700, fontSize: collapsed ? 14 : 16, whiteSpace: "nowrap" }}>
-                          {collapsed ? "CD" : "Cadabams Ops"}
-                        </span>
-                      )}
-                    >
+                    <AppShell>
                       <Outlet />
-                    </ThemedLayoutV2>
+                    </AppShell>
                   </RequireStaff>
                 </Authenticated>
               }
@@ -186,6 +168,7 @@ export default function App() {
           <DocumentTitleHandler />
         </Refine>
       </AntApp>
+      </ConfigProvider>
     </BrowserRouter>
   );
 }

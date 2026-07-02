@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Card, Tag, Button, Typography, Input, Empty, Spin, Collapse, message } from "antd";
+import { Card, Tag, Button, Typography, Input, Empty, Spin, Collapse, Segmented, message } from "antd";
 import { FileTextOutlined, FilePdfOutlined } from "@ant-design/icons";
 import { supabaseClient } from "../../lib/supabase";
 import { getReportPdfUrl } from "../lib/portalApi";
@@ -31,11 +31,14 @@ function fmtDate(v: string | null) {
 const hasStructured = (r: Report) => Array.isArray(r.structured_values) && r.structured_values.length > 0;
 const hasPdf = (r: Report) => !!(r.pdf_blob_ref || r.report_url);
 
+type GroupMode = "test" | "visit" | "doctor";
+
 export function ReportHub() {
   const navigate = useNavigate();
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [q, setQ] = useState("");
+  const [mode, setMode] = useState<GroupMode>("test");
   const [opening, setOpening] = useState<string | null>(null);
 
   useEffect(() => {
@@ -51,20 +54,25 @@ export function ReportHub() {
       });
   }, []);
 
-  // Group by test (crelio_test_id, falling back to name). Each group is already
-  // newest-first because the source query is ordered by created_at desc.
+  // Grouping — by Test (default: version history per test), by Visit (date), or
+  // by Doctor. Rows are already newest-first (query ordered created_at desc).
   const groups = useMemo(() => {
     const term = q.trim().toLowerCase();
-    const byTest = new Map<string, Report[]>();
+    const keyOf = (r: Report): string => {
+      if (mode === "visit") return fmtDate(r.reported_at ?? r.created_at);
+      if (mode === "doctor") return r.signing_doctor ?? "Doctor not specified";
+      return r.crelio_test_id ?? r.test_name ?? r.id;
+    };
+    const map = new Map<string, Report[]>();
     for (const r of reports) {
       if (term && !(r.test_name ?? "").toLowerCase().includes(term)) continue;
-      const key = r.crelio_test_id ?? r.test_name ?? r.id;
-      (byTest.get(key) ?? byTest.set(key, []).get(key)!).push(r);
+      const key = keyOf(r);
+      (map.get(key) ?? map.set(key, []).get(key)!).push(r);
     }
-    return [...byTest.values()].sort(
-      (a, b) => new Date(b[0].created_at).getTime() - new Date(a[0].created_at).getTime(),
+    return [...map.entries()].sort(
+      (a, b) => new Date(b[1][0].created_at).getTime() - new Date(a[1][0].created_at).getTime(),
     );
-  }, [reports, q]);
+  }, [reports, q, mode]);
 
   async function openPdf(r: Report) {
     setOpening(r.id);
@@ -98,6 +106,34 @@ export function ReportHub() {
 
   if (loading) return <div style={{ display: "grid", placeItems: "center", height: "50vh" }}><Spin size="large" /></div>;
 
+  // Compact row used inside visit/doctor groups (and the per-test history).
+  function reportRow(v: Report, primaryLine: string, secondaryLine?: string | null) {
+    return (
+      <div key={v.id} style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        gap: 8, padding: "10px 0", borderTop: "1px solid #f0f0f0",
+      }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 14 }}>
+            {primaryLine}
+            {v.is_amended && <Tag color="orange" style={{ marginLeft: 6 }}>amended</Tag>}
+          </div>
+          {secondaryLine && (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>{secondaryLine}</Typography.Text>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+          {hasStructured(v) && (
+            <Button size="middle" icon={<FileTextOutlined />} onClick={() => navigate(`/portal/reports/${v.id}`)} />
+          )}
+          {hasPdf(v) && (
+            <Button size="middle" type="primary" icon={<FilePdfOutlined />} loading={opening === v.id} onClick={() => openPdf(v)} />
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
       <Typography.Title level={4} style={{ margin: "0 0 12px" }}>My Reports</Typography.Title>
@@ -105,14 +141,25 @@ export function ReportHub() {
         placeholder="Search reports"
         allowClear
         size="large"
-        style={{ marginBottom: 16 }}
+        style={{ marginBottom: 12 }}
         onChange={(e) => setQ(e.target.value)}
+      />
+      <Segmented
+        block
+        value={mode}
+        onChange={(v) => setMode(v as GroupMode)}
+        options={[
+          { value: "test", label: "By test" },
+          { value: "visit", label: "By visit" },
+          { value: "doctor", label: "By doctor" },
+        ]}
+        style={{ marginBottom: 16 }}
       />
 
       {groups.length === 0 ? (
         <Empty description={q ? "No matching reports" : "No reports yet"} style={{ marginTop: 64 }} />
-      ) : (
-        groups.map((versions) => {
+      ) : mode === "test" ? (
+        groups.map(([, versions]) => {
           const latest = versions[0];
           const earlier = versions.slice(1);
           return (
@@ -146,30 +193,7 @@ export function ReportHub() {
                     label: `${earlier.length} earlier report${earlier.length > 1 ? "s" : ""}`,
                     children: (
                       <div>
-                        {earlier.map((v) => (
-                          <div key={v.id} style={{
-                            display: "flex", justifyContent: "space-between", alignItems: "center",
-                            gap: 8, padding: "10px 0", borderTop: "1px solid #f0f0f0",
-                          }}>
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontSize: 14 }}>
-                                {fmtDate(v.reported_at ?? v.created_at)}
-                                {v.is_amended && <Tag color="orange" style={{ marginLeft: 6 }}>amended</Tag>}
-                              </div>
-                              {v.signing_doctor && (
-                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>{v.signing_doctor}</Typography.Text>
-                              )}
-                            </div>
-                            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-                              {hasStructured(v) && (
-                                <Button size="middle" icon={<FileTextOutlined />} onClick={() => navigate(`/portal/reports/${v.id}`)} />
-                              )}
-                              {hasPdf(v) && (
-                                <Button size="middle" type="primary" icon={<FilePdfOutlined />} loading={opening === v.id} onClick={() => openPdf(v)} />
-                              )}
-                            </div>
-                          </div>
-                        ))}
+                        {earlier.map((v) => reportRow(v, fmtDate(v.reported_at ?? v.created_at), v.signing_doctor))}
                       </div>
                     ),
                   }]}
@@ -178,6 +202,24 @@ export function ReportHub() {
             </Card>
           );
         })
+      ) : (
+        groups.map(([label, rows]) => (
+          <Card
+            key={label}
+            title={<span style={{ fontSize: 15 }}>{label}</span>}
+            extra={<Tag style={{ margin: 0 }}>{rows.length}</Tag>}
+            style={{ marginBottom: 12, borderRadius: 12 }}
+            styles={{ body: { padding: "4px 16px 8px" } }}
+          >
+            {rows.map((v) =>
+              reportRow(
+                v,
+                v.test_name ?? "Report",
+                mode === "visit" ? v.signing_doctor : fmtDate(v.reported_at ?? v.created_at),
+              ),
+            )}
+          </Card>
+        ))
       )}
     </div>
   );
