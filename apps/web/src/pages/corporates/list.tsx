@@ -33,6 +33,7 @@ type OrgGroup = {
   orders: number;          // existing bills under this organisation's org ids
   lastOrderAt: string | null;
   refs: SubCorp[];         // corporates/referrers under this organisation (from bills)
+  tests: SubCorp[];        // tests/packages actually ordered under it (from bills)
 };
 
 // Crelio stores sub-corporates as referral entries ("Dr. C/O NIVA BUPA…") —
@@ -130,6 +131,7 @@ export function CorporatesList() {
   const [failedCentres, setFailedCentres] = useState<string[]>([]);
   const [orderCounts, setOrderCounts] = useState<Map<number, { n: number; last: string | null }>>(new Map());
   const [orgReferrals, setOrgReferrals] = useState<Map<number, SubCorp[]>>(new Map());
+  const [orgTests, setOrgTests] = useState<Map<number, SubCorp[]>>(new Map());
   const [orgSearch, setOrgSearch] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -153,12 +155,13 @@ export function CorporatesList() {
 
   async function load() {
     setLoading(true);
-    const [{ data: corps }, { data: orgs }, { data: users }, { data: counts }, { data: refs }] = await Promise.all([
+    const [{ data: corps }, { data: orgs }, { data: users }, { data: counts }, { data: refs }, { data: testRows }] = await Promise.all([
       supabaseClient.from("corporates").select("id, name, code, is_active").order("name"),
       supabaseClient.from("corporate_orgs").select("corporate_id, centre_id, crelio_org_id, org_label"),
       supabaseClient.from("corporate_users").select("corporate_id"),
       supabaseClient.from("org_order_counts").select("crelio_org_id, order_count, last_order_at"),
       supabaseClient.from("org_referrals").select("crelio_org_id, referral_name, order_count").limit(2000),
+      supabaseClient.from("org_tests").select("crelio_org_id, test_name, order_count").limit(5000),
     ]);
     setOrderCounts(new Map((counts ?? []).map((c: any) => [Number(c.crelio_org_id), { n: c.order_count as number, last: c.last_order_at as string | null }])));
     const refMap = new Map<number, SubCorp[]>();
@@ -167,6 +170,12 @@ export function CorporatesList() {
       (refMap.get(id) ?? refMap.set(id, []).get(id)!).push({ name: String(r.referral_name), n: r.order_count as number });
     }
     setOrgReferrals(refMap);
+    const testMap = new Map<number, SubCorp[]>();
+    for (const t of (testRows ?? []) as any[]) {
+      const id = Number(t.crelio_org_id);
+      (testMap.get(id) ?? testMap.set(id, []).get(id)!).push({ name: String(t.test_name), n: t.order_count as number });
+    }
+    setOrgTests(testMap);
     const byCorp = new Map<string, CorpRow>();
     for (const c of corps ?? []) byCorp.set(c.id, { ...(c as any), orgs: [], users: 0 });
     for (const o of orgs ?? []) byCorp.get((o as any).corporate_id)?.orgs.push(o as any);
@@ -208,13 +217,14 @@ export function CorporatesList() {
     const byName = new Map<string, OrgGroup>();
     for (const o of liveOrgs) {
       const key = o.name.trim().toUpperCase();
-      const g = byName.get(key) ?? { key, name: o.name.trim(), entries: [], linked: [], orders: 0, lastOrderAt: null, refs: [] };
+      const g = byName.get(key) ?? { key, name: o.name.trim(), entries: [], linked: [], orders: 0, lastOrderAt: null, refs: [], tests: [] };
       g.entries.push(o);
       byName.set(key, g);
     }
     for (const g of byName.values()) {
       const seen = new Set<string>();
       const refAgg = new Map<string, SubCorp>();
+      const testAgg = new Map<string, SubCorp>();
       for (const e of g.entries) {
         const l = linkIndex.get(`${e.centre}:${e.orgId}`);
         if (l && !seen.has(l.corpId)) { g.linked.push(l); seen.add(l.corpId); }
@@ -229,8 +239,14 @@ export function CorporatesList() {
           if (agg) agg.n += r.n;
           else refAgg.set(name.toUpperCase(), { name, n: r.n });
         }
+        for (const t of orgTests.get(e.orgId) ?? []) {
+          const agg = testAgg.get(t.name.toUpperCase());
+          if (agg) agg.n += t.n;
+          else testAgg.set(t.name.toUpperCase(), { name: t.name, n: t.n });
+        }
       }
       g.refs = [...refAgg.values()].sort((a, b) => b.n - a.n);
+      g.tests = [...testAgg.values()].sort((a, b) => b.n - a.n);
       g.entries.sort((a, b) => a.centre.localeCompare(b.centre));
     }
     const term = orgSearch.trim().toUpperCase();
@@ -238,7 +254,7 @@ export function CorporatesList() {
     return [...byName.values()]
       .filter((g) => !term || g.key.includes(term))
       .sort((a, b) => b.orders - a.orders || a.name.localeCompare(b.name));
-  }, [liveOrgs, rows, orgSearch, orderCounts, orgReferrals]);
+  }, [liveOrgs, rows, orgSearch, orderCounts, orgReferrals, orgTests]);
 
   function openLink(g: OrgGroup) {
     setLinkGroup(g);
@@ -357,21 +373,46 @@ export function CorporatesList() {
             scroll={{ x: "max-content" }}
             pagination={{ pageSize: 25, showSizeChanger: true, showTotal: (t) => `${t} organisations` }}
             expandable={{
-              rowExpandable: (g) => g.refs.length > 0,
+              rowExpandable: (g) => g.refs.length > 0 || g.tests.length > 0,
               expandedRowRender: (g) => (
-                <div style={{ padding: "4px 8px 8px 24px" }}>
-                  <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>
-                    Corporates / referrers under this organisation (from bills)
-                  </Typography.Text>
-                  {g.refs.map((r) => (
-                    <div key={r.name} style={{
-                      display: "flex", justifyContent: "space-between", maxWidth: 480,
-                      padding: "4px 0", borderBottom: "1px solid #f0f0f0", fontSize: 13,
-                    }}>
-                      <span>{r.name}</span>
-                      <Tag color="blue" style={{ margin: 0 }}>{r.n}</Tag>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 32, padding: "4px 8px 8px 24px" }}>
+                  {g.refs.length > 0 && (
+                    <div style={{ flex: "1 1 320px", maxWidth: 480 }}>
+                      <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>
+                        Corporates / referrers under this organisation
+                      </Typography.Text>
+                      {g.refs.map((r) => (
+                        <div key={r.name} style={{
+                          display: "flex", justifyContent: "space-between", gap: 8,
+                          padding: "4px 0", borderBottom: "1px solid #f0f0f0", fontSize: 13,
+                        }}>
+                          <span>{r.name}</span>
+                          <Tag color="blue" style={{ margin: 0 }}>{r.n}</Tag>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
+                  {g.tests.length > 0 && (
+                    <div style={{ flex: "1 1 320px", maxWidth: 520 }}>
+                      <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>
+                        Tests & packages ordered ({g.tests.length})
+                      </Typography.Text>
+                      {g.tests.slice(0, 12).map((t) => (
+                        <div key={t.name} style={{
+                          display: "flex", justifyContent: "space-between", gap: 8,
+                          padding: "4px 0", borderBottom: "1px solid #f0f0f0", fontSize: 13,
+                        }}>
+                          <span>{t.name}</span>
+                          <Tag style={{ margin: 0, background: BRAND.primarySoft, color: BRAND.primary, border: "none" }}>{t.n}</Tag>
+                        </div>
+                      ))}
+                      {g.tests.length > 12 && (
+                        <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                          +{g.tests.length - 12} more
+                        </Typography.Text>
+                      )}
+                    </div>
+                  )}
                 </div>
               ),
             }}
