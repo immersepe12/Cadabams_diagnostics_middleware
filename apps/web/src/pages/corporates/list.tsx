@@ -26,12 +26,18 @@ type CorpRow = {
 };
 
 type LiveOrg = { centre: string; orgId: number; name: string };
+type SubCorp = { name: string; n: number };
 type OrgGroup = {
   key: string; name: string; entries: LiveOrg[];
   linked: { corpId: string; corpName: string }[];
   orders: number;          // existing bills under this organisation's org ids
   lastOrderAt: string | null;
+  refs: SubCorp[];         // corporates/referrers under this organisation (from bills)
 };
+
+// Crelio stores sub-corporates as referral entries ("Dr. C/O NIVA BUPA…") —
+// strip the prefix noise for display.
+const cleanRef = (s: string) => s.replace(/^Dr\.?\s*/i, "").replace(/^C\/O\s*/i, "").trim();
 
 // Shown once after creating/resetting a login — the only time the password exists client-side.
 export function showPasswordOnce(email: string, password: string) {
@@ -123,6 +129,7 @@ export function CorporatesList() {
   const [liveLoading, setLiveLoading] = useState(true);
   const [failedCentres, setFailedCentres] = useState<string[]>([]);
   const [orderCounts, setOrderCounts] = useState<Map<number, { n: number; last: string | null }>>(new Map());
+  const [orgReferrals, setOrgReferrals] = useState<Map<number, SubCorp[]>>(new Map());
   const [orgSearch, setOrgSearch] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -146,13 +153,20 @@ export function CorporatesList() {
 
   async function load() {
     setLoading(true);
-    const [{ data: corps }, { data: orgs }, { data: users }, { data: counts }] = await Promise.all([
+    const [{ data: corps }, { data: orgs }, { data: users }, { data: counts }, { data: refs }] = await Promise.all([
       supabaseClient.from("corporates").select("id, name, code, is_active").order("name"),
       supabaseClient.from("corporate_orgs").select("corporate_id, centre_id, crelio_org_id, org_label"),
       supabaseClient.from("corporate_users").select("corporate_id"),
       supabaseClient.from("org_order_counts").select("crelio_org_id, order_count, last_order_at"),
+      supabaseClient.from("org_referrals").select("crelio_org_id, referral_name, order_count").limit(2000),
     ]);
     setOrderCounts(new Map((counts ?? []).map((c: any) => [Number(c.crelio_org_id), { n: c.order_count as number, last: c.last_order_at as string | null }])));
+    const refMap = new Map<number, SubCorp[]>();
+    for (const r of (refs ?? []) as any[]) {
+      const id = Number(r.crelio_org_id);
+      (refMap.get(id) ?? refMap.set(id, []).get(id)!).push({ name: String(r.referral_name), n: r.order_count as number });
+    }
+    setOrgReferrals(refMap);
     const byCorp = new Map<string, CorpRow>();
     for (const c of corps ?? []) byCorp.set(c.id, { ...(c as any), orgs: [], users: 0 });
     for (const o of orgs ?? []) byCorp.get((o as any).corporate_id)?.orgs.push(o as any);
@@ -194,12 +208,13 @@ export function CorporatesList() {
     const byName = new Map<string, OrgGroup>();
     for (const o of liveOrgs) {
       const key = o.name.trim().toUpperCase();
-      const g = byName.get(key) ?? { key, name: o.name.trim(), entries: [], linked: [], orders: 0, lastOrderAt: null };
+      const g = byName.get(key) ?? { key, name: o.name.trim(), entries: [], linked: [], orders: 0, lastOrderAt: null, refs: [] };
       g.entries.push(o);
       byName.set(key, g);
     }
     for (const g of byName.values()) {
       const seen = new Set<string>();
+      const refAgg = new Map<string, SubCorp>();
       for (const e of g.entries) {
         const l = linkIndex.get(`${e.centre}:${e.orgId}`);
         if (l && !seen.has(l.corpId)) { g.linked.push(l); seen.add(l.corpId); }
@@ -208,7 +223,14 @@ export function CorporatesList() {
           g.orders += c.n;
           if (c.last && (!g.lastOrderAt || c.last > g.lastOrderAt)) g.lastOrderAt = c.last;
         }
+        for (const r of orgReferrals.get(e.orgId) ?? []) {
+          const name = cleanRef(r.name) || r.name;
+          const agg = refAgg.get(name.toUpperCase());
+          if (agg) agg.n += r.n;
+          else refAgg.set(name.toUpperCase(), { name, n: r.n });
+        }
       }
+      g.refs = [...refAgg.values()].sort((a, b) => b.n - a.n);
       g.entries.sort((a, b) => a.centre.localeCompare(b.centre));
     }
     const term = orgSearch.trim().toUpperCase();
@@ -216,7 +238,7 @@ export function CorporatesList() {
     return [...byName.values()]
       .filter((g) => !term || g.key.includes(term))
       .sort((a, b) => b.orders - a.orders || a.name.localeCompare(b.name));
-  }, [liveOrgs, rows, orgSearch, orderCounts]);
+  }, [liveOrgs, rows, orgSearch, orderCounts, orgReferrals]);
 
   function openLink(g: OrgGroup) {
     setLinkGroup(g);
@@ -334,6 +356,25 @@ export function CorporatesList() {
             dataSource={orgGroups} rowKey="key" size="small"
             scroll={{ x: "max-content" }}
             pagination={{ pageSize: 25, showSizeChanger: true, showTotal: (t) => `${t} organisations` }}
+            expandable={{
+              rowExpandable: (g) => g.refs.length > 0,
+              expandedRowRender: (g) => (
+                <div style={{ padding: "4px 8px 8px 24px" }}>
+                  <Typography.Text type="secondary" style={{ fontSize: 12, display: "block", marginBottom: 6 }}>
+                    Corporates / referrers under this organisation (from bills)
+                  </Typography.Text>
+                  {g.refs.map((r) => (
+                    <div key={r.name} style={{
+                      display: "flex", justifyContent: "space-between", maxWidth: 480,
+                      padding: "4px 0", borderBottom: "1px solid #f0f0f0", fontSize: 13,
+                    }}>
+                      <span>{r.name}</span>
+                      <Tag color="blue" style={{ margin: 0 }}>{r.n}</Tag>
+                    </div>
+                  ))}
+                </div>
+              ),
+            }}
           >
             <Table.Column<OrgGroup> title="Organisation" render={(_, g) => (
               <Typography.Text strong>{g.name}</Typography.Text>
