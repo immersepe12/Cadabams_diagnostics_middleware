@@ -30,24 +30,37 @@ import { TestList } from "./pages/tests/list";
 import { RadiologyList } from "./pages/radiology/list";
 import { Worklist } from "./pages/radiology/worklist";
 import { BookingNew } from "./pages/bookings/new";
+import { CorporatesList } from "./pages/corporates/list";
+import { CorporateShow } from "./pages/corporates/show";
 import { PortalAuthenticated } from "./portal/PortalAuthenticated";
 import { PortalLayout } from "./portal/PortalLayout";
 import { PortalLogin } from "./portal/login";
 import { ReportHub } from "./portal/pages/ReportHub";
 import { ReportDetail } from "./portal/pages/ReportDetail";
+import { CorporateGate } from "./corporate/CorporateGate";
+import { CorporateLayout } from "./corporate/CorporateLayout";
+import { CorporateLogin } from "./corporate/login";
+import { CorporateDashboard } from "./corporate/pages/Dashboard";
+import { CorporateOrders } from "./corporate/pages/Orders";
+import { CorporateOrderDetail } from "./corporate/pages/OrderDetail";
+import { CorporateBook } from "./corporate/pages/Book";
 
-// Inside the ops <Authenticated> group a session is guaranteed, but a phone-authed
-// patient would also pass it. Assert the staff role and bounce patients to /portal.
+// Inside the ops <Authenticated> group a session is guaranteed, but corporate
+// and patient logins share the auth pool. Route each identity to its own app:
+// staff/admin stay here, corporate → /corporate, patients → /portal.
 function RequireStaff({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<"loading" | "staff" | "not-staff">("loading");
+  const [state, setState] = useState<"loading" | "staff" | "corporate" | "patient">("loading");
   useEffect(() => {
     supabaseClient.auth.getSession().then(({ data }) => {
       const role = (data.session?.user.app_metadata as { role?: string })?.role;
-      setState(role === "staff" ? "staff" : "not-staff");
+      if (role === "staff" || role === "admin") setState("staff");
+      else if (role === "corporate") setState("corporate");
+      else setState("patient");
     });
   }, []);
   if (state === "loading") return <div style={{ display: "grid", placeItems: "center", height: "100vh" }}><Spin /></div>;
-  if (state === "not-staff") return <Navigate to="/portal" replace />;
+  if (state === "corporate") return <Navigate to="/corporate" replace />;
+  if (state === "patient") return <Navigate to="/portal" replace />;
   return <>{children}</>;
 }
 
@@ -126,6 +139,8 @@ export default function App() {
               <Route path="/radiology/us" element={<Worklist modality="us" title="Ultrasound" />} />
               <Route path="/radiology/ct-mri" element={<Worklist modality="ctmri" title="CT & MRI" />} />
               <Route path="/radiology/xray" element={<Worklist modality="xray" title="X-Ray" />} />
+              <Route path="/corporates" element={<CorporatesList />} />
+              <Route path="/corporates/:id" element={<CorporateShow />} />
             </Route>
 
             <Route
@@ -146,6 +161,22 @@ export default function App() {
                   />
                 }
               />
+            </Route>
+
+            {/* Corporate portal — email/password, org-scoped by RLS */}
+            <Route path="/corporate/login" element={<CorporateLogin />} />
+            <Route
+              path="/corporate"
+              element={
+                <CorporateGate>
+                  <CorporateLayout />
+                </CorporateGate>
+              }
+            >
+              <Route index element={<CorporateDashboard />} />
+              <Route path="orders" element={<CorporateOrders />} />
+              <Route path="orders/:id" element={<CorporateOrderDetail />} />
+              <Route path="book" element={<CorporateBook />} />
             </Route>
 
             {/* Patient portal — phone-OTP auth, its own slim layout, scoped by RLS */}

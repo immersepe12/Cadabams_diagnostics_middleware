@@ -4,7 +4,7 @@ import { useGetIdentity, useLogout } from "@refinedev/core";
 import { Layout, Menu, Grid, Button, Drawer, Typography, Avatar, Tooltip } from "antd";
 import {
   FileTextOutlined, UserOutlined, ExperimentOutlined, ScanOutlined,
-  MenuOutlined, LogoutOutlined,
+  MenuOutlined, LogoutOutlined, BankOutlined,
 } from "@ant-design/icons";
 import { BRAND } from "../theme";
 
@@ -29,7 +29,10 @@ const NAV = [
   },
 ];
 
-const NAV_KEYS = ["/bills", "/patients", "/tests", "/radiology/us", "/radiology/ct-mri", "/radiology/xray", "/radiology"];
+// Admin-only section (user & corporate management).
+const ADMIN_NAV = [{ key: "/corporates", icon: <BankOutlined />, label: "Corporates" }];
+
+const NAV_KEYS = ["/bills", "/patients", "/tests", "/radiology/us", "/radiology/ct-mri", "/radiology/xray", "/radiology", "/corporates"];
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
@@ -53,9 +56,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isMobile = !screens.md;
   const location = useLocation();
   const navigate = useNavigate();
-  const { data: user } = useGetIdentity<{ name?: string }>();
+  const { data: user } = useGetIdentity<{ name?: string; role?: string | null }>();
   const { mutate: logout } = useLogout();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const navItems = user?.role === "admin" ? [...NAV, ...ADMIN_NAV] : NAV;
 
   // Longest nav key that prefixes the current path → selected item
   // (e.g. /bills/123 → /bills, /radiology/ct-mri → itself, not /radiology).
@@ -68,7 +72,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const menu = (
     <Menu
       mode="inline"
-      items={NAV}
+      items={navItems}
       selectedKeys={[selectedKey]}
       defaultOpenKeys={["radiology"]}
       style={{ border: "none", background: "transparent", flex: 1 }}

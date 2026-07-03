@@ -4,20 +4,19 @@ import { Spin } from "antd";
 import type { Session } from "@supabase/supabase-js";
 import { supabaseClient } from "../lib/supabase";
 
-// Gate for the /portal/* subtree. Checks the Supabase session directly (not via
-// Refine's authProvider, which stays staff-only) and requires a PATIENT session:
-// a phone identity that is NOT staff. Staff are bounced to the ops app.
-type Gate = "loading" | "patient" | "staff" | "corporate" | "anon";
+// Gate for the /corporate/* subtree: requires a corporate-role session.
+// Staff/admin → ops app; patients → patient portal; anonymous → corporate login.
+type Gate = "loading" | "corporate" | "staff" | "patient" | "anon";
 
 function classify(session: Session | null): Gate {
   if (!session?.user) return "anon";
   const role = (session.user.app_metadata as { role?: string })?.role;
-  if (role === "staff" || role === "admin") return "staff";
   if (role === "corporate") return "corporate";
+  if (role === "staff" || role === "admin") return "staff";
   return session.user.phone ? "patient" : "anon";
 }
 
-export function PortalAuthenticated({ children }: { children: React.ReactNode }) {
+export function CorporateGate({ children }: { children: React.ReactNode }) {
   const [gate, setGate] = useState<Gate>("loading");
 
   useEffect(() => {
@@ -32,7 +31,7 @@ export function PortalAuthenticated({ children }: { children: React.ReactNode })
     return <div style={{ display: "grid", placeItems: "center", height: "60vh" }}><Spin /></div>;
   }
   if (gate === "staff") return <Navigate to="/bills" replace />;
-  if (gate === "corporate") return <Navigate to="/corporate" replace />;
-  if (gate === "anon") return <Navigate to="/portal/login" replace />;
+  if (gate === "patient") return <Navigate to="/portal" replace />;
+  if (gate === "anon") return <Navigate to="/corporate/login" replace />;
   return <>{children}</>;
 }

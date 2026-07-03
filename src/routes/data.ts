@@ -1,9 +1,13 @@
 import { Hono } from "hono";
 import { listOrganizations } from "../adapters/crelio/datafetch";
 import type { CentreId } from "../adapters/crelio/types";
+import { requireStaff } from "../lib/requireStaff";
 
 const route = new Hono();
 const CENTRES: CentreId[] = ["KYL", "JNR", "KKP", "BSK"];
+
+// Ops-only (live Crelio reads for the booking/admin pickers).
+route.use("*", requireStaff);
 
 // GET /data/organizations/:centre — corporate orgs for the booking form picker
 route.get("/organizations/:centre", async (c) => {

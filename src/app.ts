@@ -12,6 +12,8 @@ import v1Route        from "./routes/v1";
 import portalRoute    from "./routes/portal";
 import authHookRoute  from "./routes/authHook";
 import risRoute       from "./routes/ris";
+import adminRoute     from "./routes/admin";
+import corporateRoute from "./routes/corporate";
 
 const app = new Hono();
 
@@ -31,5 +33,7 @@ app.route("/v1",        v1Route);
 app.route("/api/portal", portalRoute);
 app.route("/api/auth",   authHookRoute);
 app.route("/api/ris",    risRoute);
+app.route("/api/admin",  adminRoute);
+app.route("/api/corporate", corporateRoute);
 
 export default app;

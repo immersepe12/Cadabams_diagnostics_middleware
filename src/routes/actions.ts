@@ -7,9 +7,13 @@ import type { CentreId } from "../adapters/crelio/types";
 import { supabase } from "../lib/supabase";
 import { authPatient } from "../lib/portalAuth";
 import { reportDelivery } from "../lib/reportDelivery";
+import { requireStaff } from "../lib/requireStaff";
 
 const route = new Hono();
 const CENTRES: CentreId[] = ["KYL", "JNR", "KKP", "BSK"];
+
+// All bill/report actions are ops-only.
+route.use("*", requireStaff);
 
 // Wrap each handler with centre validation + uniform error handling.
 function action<T>(fn: (centre: CentreId, body: any) => Promise<T>) {

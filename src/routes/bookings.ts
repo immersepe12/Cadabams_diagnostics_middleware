@@ -1,9 +1,13 @@
 import { Hono } from "hono";
 import { createBooking, type BookingInput } from "../adapters/crelio/booking";
 import type { CentreId } from "../adapters/crelio/types";
+import { requireStaff } from "../lib/requireStaff";
 
 const route = new Hono();
 const CENTRES: CentreId[] = ["KYL", "JNR", "KKP", "BSK"];
+
+// Ops-only: corporates book via /api/corporate/bookings (org forced there).
+route.use("*", requireStaff);
 
 // POST /bookings
 // Create a bill in Crelio (optionally an appointment or home-collection booking)

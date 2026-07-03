@@ -9,10 +9,16 @@ export interface SyncBillResult {
   tests: number;
 }
 
+// Ops endpoints are staff-gated — every call carries the session bearer token.
+async function authHeaders(): Promise<Record<string, string>> {
+  const { data: { session } } = await supabaseClient.auth.getSession();
+  return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -106,10 +112,54 @@ export interface CrelioOrg { orgId: number; name: string; code: string | null; c
 
 // Corporate orgs for a centre (live Crelio Organization List)
 export async function fetchOrganizations(centre: string): Promise<CrelioOrg[]> {
-  const res = await fetch(`/data/organizations/${centre}`);
+  const res = await fetch(`/data/organizations/${centre}`, { headers: await authHeaders() });
   if (!res.ok) {
     const b = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(b.error ?? `Failed to load organizations (HTTP ${res.status})`);
   }
   return (await res.json()).organizations ?? [];
+}
+
+// ── Admin: corporates + user management (all admin-gated on the backend) ─────
+
+export interface OrgMapping { centreId: string; crelioOrgId: number; label?: string }
+
+export function createCorporate(body: { name: string; code?: string; orgs: OrgMapping[] }) {
+  return postJson<{ ok: boolean; corporate: { id: string; name: string; code: string } }>("/api/admin/corporates", body);
+}
+
+export async function updateCorporate(id: string, body: { name?: string; isActive?: boolean; orgs?: OrgMapping[] }) {
+  const res = await fetch(`/api/admin/corporates/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const b = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(b.error ?? `Update failed (HTTP ${res.status})`);
+  }
+  return (await res.json()) as { ok: boolean };
+}
+
+export function createLogin(body: { kind: "corporate" | "staff" | "admin"; email: string; name?: string; corporateId?: string }) {
+  return postJson<{ ok: boolean; userId: string; email: string; password: string }>("/api/admin/users", body);
+}
+
+export function resetLoginPassword(userId: string) {
+  return postJson<{ ok: boolean; password: string }>(`/api/admin/users/${userId}/reset-password`, {});
+}
+
+export function toggleLogin(userId: string, active: boolean) {
+  return postJson<{ ok: boolean }>(`/api/admin/users/${userId}/toggle`, { active });
+}
+
+export interface StaffUser { id: string; email: string | null; role: string; banned: boolean; created_at: string }
+
+export async function listStaffUsers(): Promise<StaffUser[]> {
+  const res = await fetch("/api/admin/staff-users", { headers: await authHeaders() });
+  if (!res.ok) {
+    const b = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(b.error ?? `Failed to load users (HTTP ${res.status})`);
+  }
+  return ((await res.json()) as { users: StaffUser[] }).users;
 }

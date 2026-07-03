@@ -27,7 +27,11 @@ export const authProvider: AuthProvider = {
   getIdentity: async () => {
     const { data: { user } } = await supabaseClient.auth.getUser();
     if (!user) return null;
-    return { id: user.id, name: user.email ?? "User" };
+    return {
+      id: user.id,
+      name: user.email ?? "User",
+      role: (user.app_metadata as { role?: string })?.role ?? null,
+    };
   },
 
   onError: async (error) => {

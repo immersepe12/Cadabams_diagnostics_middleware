@@ -2,8 +2,12 @@ import { Hono } from "hono";
 import { syncBillById } from "../adapters/crelio/bills";
 import { supabase } from "../lib/supabase";
 import type { CentreId } from "../adapters/crelio/types";
+import { requireStaff } from "../lib/requireStaff";
 
 const route = new Hono();
+
+// /sync/bill is ops-only; /sync/reconcile keeps its shared-secret guard (cron).
+route.use("/bill", requireStaff);
 
 const str = (v: unknown): string => (v == null ? "" : String(v).trim());
 
