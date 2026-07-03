@@ -376,7 +376,7 @@ export function CorporatesList() {
               onClick: (e) => {
                 // Don't hijack the expand-arrow's click.
                 if ((e.target as HTMLElement).closest(".ant-table-row-expand-icon")) return;
-                navigate(`/corporates/org/${encodeURIComponent(g.name)}`);
+                navigate(`/corporates/org?name=${encodeURIComponent(g.name)}`);
               },
             })}
             style={{ cursor: "pointer" }}

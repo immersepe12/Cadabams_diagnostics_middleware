@@ -141,7 +141,7 @@ export default function App() {
               <Route path="/radiology/ct-mri" element={<Worklist modality="ctmri" title="CT & MRI" />} />
               <Route path="/radiology/xray" element={<Worklist modality="xray" title="X-Ray" />} />
               <Route path="/corporates" element={<CorporatesList />} />
-              <Route path="/corporates/org/:name" element={<OrganisationShow />} />
+              <Route path="/corporates/org" element={<OrganisationShow />} />
               <Route path="/corporates/:id" element={<CorporateShow />} />
             </Route>
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useSearchParams, useNavigate, Link } from "react-router-dom";
 import {
   Card, Table, Tag, Button, Space, Typography, Modal, Form, Input, Radio, Select, Checkbox, Spin, Empty, message, Statistic, Row, Col,
 } from "antd";
@@ -46,8 +46,10 @@ type OrderRow = {
 };
 
 export function OrganisationShow() {
-  const { name = "" } = useParams<{ name: string }>();
-  const orgName = decodeURIComponent(name);
+  // Query param, not a path segment — org names contain "/" (C/O …), which
+  // breaks path-param matching even when encoded.
+  const [searchParams] = useSearchParams();
+  const orgName = searchParams.get("name") ?? "";
   const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
