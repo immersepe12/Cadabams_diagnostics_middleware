@@ -1,14 +1,15 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import {
-  Card, Table, Tag, Button, Space, Typography, Modal, Form, Input, Select, message, Tooltip, Alert,
+  Card, Table, Tag, Button, Space, Typography, Modal, Form, Input, Select, Radio, Checkbox, message, Tooltip, Alert, Spin,
 } from "antd";
-import { PlusOutlined, BankOutlined, KeyOutlined, StopOutlined, CheckCircleOutlined } from "@ant-design/icons";
+import { PlusOutlined, BankOutlined, KeyOutlined, StopOutlined, CheckCircleOutlined, LinkOutlined, UserAddOutlined, SearchOutlined } from "@ant-design/icons";
 import { supabaseClient } from "../../lib/supabase";
 import {
-  createCorporate, createLogin, listStaffUsers, resetLoginPassword, toggleLogin,
+  createCorporate, updateCorporate, createLogin, listStaffUsers, resetLoginPassword, toggleLogin,
   fetchOrganizations, type CrelioOrg, type OrgMapping, type StaffUser,
 } from "../../lib/api";
+import { BRAND } from "../../theme";
 
 const CENTRES = [
   { value: "KYL", label: "Kalyan Nagar" },
@@ -22,6 +23,12 @@ type CorpRow = {
   id: string; name: string; code: string; is_active: boolean;
   orgs: { centre_id: string; crelio_org_id: number; org_label: string | null }[];
   users: number;
+};
+
+type LiveOrg = { centre: string; orgId: number; name: string };
+type OrgGroup = {
+  key: string; name: string; entries: LiveOrg[];
+  linked: { corpId: string; corpName: string }[];
 };
 
 // Shown once after creating/resetting a login — the only time the password exists client-side.
@@ -46,6 +53,7 @@ export function showPasswordOnce(email: string, password: string) {
 }
 
 // Builder for centre → Crelio org mappings, fed by the live Crelio org list.
+// (Used by the corporate detail page's org editor.)
 export function OrgMappingBuilder({ value, onChange }: {
   value: OrgMapping[];
   onChange: (v: OrgMapping[]) => void;
@@ -109,8 +117,25 @@ export function CorporatesList() {
   const [loading, setLoading] = useState(true);
   const [team, setTeam] = useState<StaffUser[]>([]);
   const [teamLoading, setTeamLoading] = useState(true);
+  const [liveOrgs, setLiveOrgs] = useState<LiveOrg[]>([]);
+  const [liveLoading, setLiveLoading] = useState(true);
+  const [failedCentres, setFailedCentres] = useState<string[]>([]);
+  const [orgSearch, setOrgSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // Link-organisation modal
+  const [linkGroup, setLinkGroup] = useState<OrgGroup | null>(null);
+  const [linkMode, setLinkMode] = useState<"new" | "existing">("new");
+  const [linkName, setLinkName] = useState("");
+  const [linkCorpId, setLinkCorpId] = useState<string>();
+  const [linkChecked, setLinkChecked] = useState<string[]>([]);
+
+  // Add-login modal (corporate portal user)
+  const [loginFor, setLoginFor] = useState<{ corpId: string; corpName: string } | null>(null);
+  const [loginForm] = Form.useForm();
+
+  // Legacy manual "New corporate" modal (kept for odd cases)
   const [createOpen, setCreateOpen] = useState(false);
-  const [creating, setCreating] = useState(false);
   const [orgDraft, setOrgDraft] = useState<OrgMapping[]>([]);
   const [staffOpen, setStaffOpen] = useState(false);
   const [form] = Form.useForm();
@@ -130,35 +155,130 @@ export function CorporatesList() {
     setRows([...byCorp.values()]);
     setLoading(false);
   }
+
+  async function loadLive() {
+    setLiveLoading(true);
+    const results = await Promise.allSettled(
+      CENTRES.map(async (c) => (await fetchOrganizations(c.value)).map((o) => ({ centre: c.value, orgId: o.orgId, name: o.name }))),
+    );
+    const ok: LiveOrg[] = [];
+    const failed: string[] = [];
+    results.forEach((r, i) => {
+      if (r.status === "fulfilled") ok.push(...r.value);
+      else failed.push(CENTRES[i].label);
+    });
+    setLiveOrgs(ok);
+    setFailedCentres(failed);
+    setLiveLoading(false);
+  }
+
   async function loadTeam() {
     setTeamLoading(true);
     try { setTeam(await listStaffUsers()); } catch (e: any) { message.error(e.message); }
     setTeamLoading(false);
   }
-  useEffect(() => { load(); loadTeam(); }, []);
+
+  useEffect(() => { load(); loadLive(); loadTeam(); }, []);
+
+  // Group live orgs by normalised name (the same company appears at multiple
+  // centres with different Crelio org ids) and attach linked corporates.
+  const orgGroups = useMemo<OrgGroup[]>(() => {
+    const linkIndex = new Map<string, { corpId: string; corpName: string }>();
+    for (const c of rows) for (const o of c.orgs) linkIndex.set(`${o.centre_id}:${o.crelio_org_id}`, { corpId: c.id, corpName: c.name });
+
+    const byName = new Map<string, OrgGroup>();
+    for (const o of liveOrgs) {
+      const key = o.name.trim().toUpperCase();
+      const g = byName.get(key) ?? { key, name: o.name.trim(), entries: [], linked: [] };
+      g.entries.push(o);
+      byName.set(key, g);
+    }
+    for (const g of byName.values()) {
+      const seen = new Set<string>();
+      for (const e of g.entries) {
+        const l = linkIndex.get(`${e.centre}:${e.orgId}`);
+        if (l && !seen.has(l.corpId)) { g.linked.push(l); seen.add(l.corpId); }
+      }
+      g.entries.sort((a, b) => a.centre.localeCompare(b.centre));
+    }
+    const term = orgSearch.trim().toUpperCase();
+    return [...byName.values()]
+      .filter((g) => !term || g.key.includes(term))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [liveOrgs, rows, orgSearch]);
+
+  function openLink(g: OrgGroup) {
+    setLinkGroup(g);
+    setLinkMode("new");
+    setLinkName(g.name);
+    setLinkCorpId(undefined);
+    setLinkChecked(g.entries.map((e) => `${e.centre}:${e.orgId}`));
+  }
+
+  async function submitLink() {
+    if (!linkGroup) return;
+    const chosen = linkGroup.entries.filter((e) => linkChecked.includes(`${e.centre}:${e.orgId}`));
+    if (!chosen.length) { message.error("Pick at least one organisation"); return; }
+    const orgs: OrgMapping[] = chosen.map((e) => ({ centreId: e.centre, crelioOrgId: e.orgId, label: e.name }));
+    setBusy(true);
+    try {
+      let corpId: string; let corpName: string;
+      if (linkMode === "new") {
+        if (!linkName.trim()) { message.error("Corporate name is required"); setBusy(false); return; }
+        const res = await createCorporate({ name: linkName.trim(), orgs });
+        corpId = res.corporate.id; corpName = res.corporate.name;
+      } else {
+        if (!linkCorpId) { message.error("Pick a corporate"); setBusy(false); return; }
+        const existing = rows.find((r) => r.id === linkCorpId)!;
+        const merged = [
+          ...existing.orgs.map((o) => ({ centreId: o.centre_id, crelioOrgId: o.crelio_org_id, label: o.org_label ?? undefined })),
+          ...orgs.filter((o) => !existing.orgs.some((e) => e.centre_id === o.centreId && e.crelio_org_id === o.crelioOrgId)),
+        ];
+        await updateCorporate(linkCorpId, { orgs: merged });
+        corpId = linkCorpId; corpName = existing.name;
+      }
+      message.success(`Linked to ${corpName}`);
+      setLinkGroup(null);
+      await load();
+      // Straight into login creation — the usual next step after linking.
+      setLoginFor({ corpId, corpName });
+    } catch (e: any) { message.error(e.message); } finally { setBusy(false); }
+  }
+
+  async function submitLogin() {
+    if (!loginFor) return;
+    const v = await loginForm.validateFields();
+    setBusy(true);
+    try {
+      const res = await createLogin({ kind: "corporate", email: v.email, name: v.name || undefined, corporateId: loginFor.corpId });
+      setLoginFor(null); loginForm.resetFields();
+      showPasswordOnce(res.email, res.password);
+      load();
+    } catch (e: any) { message.error(e.message); } finally { setBusy(false); }
+  }
 
   async function submitCreate() {
     const v = await form.validateFields();
     if (!orgDraft.length) { message.error("Add at least one Crelio organization mapping"); return; }
-    setCreating(true);
+    setBusy(true);
     try {
       const res = await createCorporate({ name: v.name, code: v.code || undefined, orgs: orgDraft });
       message.success("Corporate created");
       setCreateOpen(false); form.resetFields(); setOrgDraft([]);
       load();
       navigate(`/corporates/${res.corporate.id}`);
-    } catch (e: any) { message.error(e.message); } finally { setCreating(false); }
+    } catch (e: any) { message.error(e.message); } finally { setBusy(false); }
   }
 
   async function submitStaff() {
     const v = await staffForm.validateFields();
-    setCreating(true);
+    setBusy(true);
     try {
       const res = await createLogin({ kind: v.kind, email: v.email, name: v.name || undefined });
       setStaffOpen(false); staffForm.resetFields();
       showPasswordOnce(res.email, res.password);
       loadTeam();
-    } catch (e: any) { message.error(e.message); } finally { setCreating(false); }
+    } catch (e: any) { message.error(e.message); } finally { setBusy(false); }
   }
 
   async function resetPw(u: StaffUser) {
@@ -174,10 +294,80 @@ export function CorporatesList() {
     <div>
       <Space style={{ width: "100%", justifyContent: "space-between", marginBottom: 16 }} wrap>
         <Typography.Title level={4} style={{ margin: 0 }}>Corporates</Typography.Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>New Corporate</Button>
+        <Button icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>Manual corporate</Button>
       </Space>
 
-      <Card style={{ marginBottom: 20 }} styles={{ body: { padding: 0 } }}>
+      {/* ── Organisations (live from Crelio, all centres) ─────────────────── */}
+      <Card
+        title="Organisations (from Crelio)"
+        extra={
+          <Input
+            placeholder="Search organisations"
+            prefix={<SearchOutlined />}
+            allowClear
+            style={{ width: 240 }}
+            onChange={(e) => setOrgSearch(e.target.value)}
+          />
+        }
+        style={{ marginBottom: 20 }}
+        styles={{ body: { padding: 0 } }}
+      >
+        {failedCentres.length > 0 && (
+          <Alert type="warning" showIcon banner
+            message={`Couldn't load organisations for: ${failedCentres.join(", ")}. Retry by refreshing.`} />
+        )}
+        {liveLoading ? (
+          <div style={{ display: "grid", placeItems: "center", padding: 48 }}><Spin /></div>
+        ) : (
+          <Table<OrgGroup>
+            dataSource={orgGroups} rowKey="key" size="small"
+            scroll={{ x: "max-content" }}
+            pagination={{ pageSize: 25, showSizeChanger: true, showTotal: (t) => `${t} organisations` }}
+          >
+            <Table.Column<OrgGroup> title="Organisation" render={(_, g) => (
+              <Typography.Text strong>{g.name}</Typography.Text>
+            )} />
+            <Table.Column<OrgGroup> title="Centres / Crelio org #" render={(_, g) => (
+              <Space wrap size={4}>
+                {g.entries.map((e) => (
+                  <Tag key={`${e.centre}-${e.orgId}`}>{e.centre} #{e.orgId}</Tag>
+                ))}
+              </Space>
+            )} />
+            <Table.Column<OrgGroup> title="Corporate" width={220} render={(_, g) => (
+              g.linked.length
+                ? <Space wrap size={4}>{g.linked.map((l) => (
+                    <Link key={l.corpId} to={`/corporates/${l.corpId}`}>
+                      <Tag color="green" style={{ cursor: "pointer" }}>{l.corpName}</Tag>
+                    </Link>
+                  ))}</Space>
+                : <Tag>not linked</Tag>
+            )} />
+            <Table.Column<OrgGroup> title="Actions" width={200} render={(_, g) => (
+              <Space>
+                {g.linked.length === 0 ? (
+                  <Button size="small" type="primary" icon={<LinkOutlined />} onClick={() => openLink(g)}>
+                    Link corporate
+                  </Button>
+                ) : (
+                  <>
+                    <Button size="small" icon={<UserAddOutlined />}
+                      onClick={() => setLoginFor({ corpId: g.linked[0].corpId, corpName: g.linked[0].corpName })}>
+                      Add login
+                    </Button>
+                    <Tooltip title="Link these orgs to another / additional corporate">
+                      <Button size="small" icon={<LinkOutlined />} onClick={() => openLink(g)} />
+                    </Tooltip>
+                  </>
+                )}
+              </Space>
+            )} />
+          </Table>
+        )}
+      </Card>
+
+      {/* ── Linked corporates ─────────────────────────────────────────────── */}
+      <Card title="Linked corporates" style={{ marginBottom: 20 }} styles={{ body: { padding: 0 } }}>
         <Table<CorpRow>
           dataSource={rows} rowKey="id" size="small" loading={loading}
           scroll={{ x: "max-content" }} pagination={false}
@@ -185,7 +375,7 @@ export function CorporatesList() {
           style={{ cursor: "pointer" }}
         >
           <Table.Column<CorpRow> title="Corporate" render={(_, r) => (
-            <Space><BankOutlined style={{ color: "#0F766E" }} /><span>{r.name}</span>
+            <Space><BankOutlined style={{ color: BRAND.primary }} /><span>{r.name}</span>
               <Typography.Text type="secondary" style={{ fontSize: 11 }}>({r.code})</Typography.Text></Space>
           )} />
           <Table.Column<CorpRow> title="Org mappings" render={(_, r) => (
@@ -198,9 +388,16 @@ export function CorporatesList() {
           <Table.Column<CorpRow> title="Users" width={80} align="center" render={(_, r) => r.users} />
           <Table.Column<CorpRow> title="Status" width={100}
             render={(_, r) => <Tag color={r.is_active ? "green" : "red"}>{r.is_active ? "active" : "disabled"}</Tag>} />
+          <Table.Column<CorpRow> title="Actions" width={130} render={(_, r) => (
+            <Button size="small" icon={<UserAddOutlined />}
+              onClick={(e) => { e.stopPropagation(); setLoginFor({ corpId: r.id, corpName: r.name }); }}>
+              Add login
+            </Button>
+          )} />
         </Table>
       </Card>
 
+      {/* ── Team ──────────────────────────────────────────────────────────── */}
       <Card
         title="Team — staff & admin logins"
         extra={<Button size="small" icon={<PlusOutlined />} onClick={() => setStaffOpen(true)}>Add login</Button>}
@@ -225,9 +422,80 @@ export function CorporatesList() {
         </Table>
       </Card>
 
-      {/* New corporate */}
-      <Modal title="New corporate" open={createOpen} onCancel={() => setCreateOpen(false)}
-        onOk={submitCreate} okText="Create" confirmLoading={creating} width={620}>
+      {/* Link organisation → corporate */}
+      <Modal
+        title={`Link "${linkGroup?.name ?? ""}"`}
+        open={!!linkGroup}
+        onCancel={() => setLinkGroup(null)}
+        onOk={submitLink}
+        okText={linkMode === "new" ? "Create & link" : "Link"}
+        confirmLoading={busy}
+        width={560}
+      >
+        <Radio.Group value={linkMode} onChange={(e) => setLinkMode(e.target.value)} style={{ marginBottom: 16 }}>
+          <Radio.Button value="new">New corporate</Radio.Button>
+          <Radio.Button value="existing">Existing corporate</Radio.Button>
+        </Radio.Group>
+
+        {linkMode === "new" ? (
+          <Form layout="vertical">
+            <Form.Item label="Corporate name" required>
+              <Input value={linkName} onChange={(e) => setLinkName(e.target.value)} />
+            </Form.Item>
+          </Form>
+        ) : (
+          <Form layout="vertical">
+            <Form.Item label="Corporate" required>
+              <Select
+                placeholder="Pick a corporate"
+                value={linkCorpId}
+                onChange={setLinkCorpId}
+                options={rows.map((r) => ({ value: r.id, label: r.name }))}
+                showSearch optionFilterProp="label"
+              />
+            </Form.Item>
+          </Form>
+        )}
+
+        <Typography.Text strong style={{ display: "block", marginBottom: 6 }}>
+          Include these organisations:
+        </Typography.Text>
+        <Checkbox.Group
+          value={linkChecked}
+          onChange={(v) => setLinkChecked(v as string[])}
+          style={{ display: "flex", flexDirection: "column", gap: 6 }}
+          options={(linkGroup?.entries ?? []).map((e) => ({
+            value: `${e.centre}:${e.orgId}`,
+            label: `${CENTRE_NAME[e.centre] ?? e.centre} — ${e.name} (#${e.orgId})`,
+          }))}
+        />
+        <Alert style={{ marginTop: 12 }} type="info" showIcon
+          message="All bookings under the selected org IDs (past and future) become visible to this corporate's users." />
+      </Modal>
+
+      {/* Add corporate login */}
+      <Modal
+        title={`Add login — ${loginFor?.corpName ?? ""}`}
+        open={!!loginFor}
+        onCancel={() => setLoginFor(null)}
+        onOk={submitLogin}
+        okText="Create login"
+        confirmLoading={busy}
+      >
+        <Form form={loginForm} layout="vertical">
+          <Form.Item name="email" label="Email" rules={[{ required: true, type: "email" }]}>
+            <Input placeholder="person@corporate.com" />
+          </Form.Item>
+          <Form.Item name="name" label="Name (optional)"><Input /></Form.Item>
+        </Form>
+        <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 0 }}>
+          A strong password is generated and shown once after creation.
+        </Typography.Paragraph>
+      </Modal>
+
+      {/* Manual corporate (fallback) */}
+      <Modal title="New corporate (manual)" open={createOpen} onCancel={() => setCreateOpen(false)}
+        onOk={submitCreate} okText="Create" confirmLoading={busy} width={620}>
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="Name" rules={[{ required: true }]}>
             <Input placeholder="e.g. Visit Health" />
@@ -235,17 +503,15 @@ export function CorporatesList() {
           <Form.Item name="code" label="Code (optional)">
             <Input placeholder="short code — auto-generated if blank" />
           </Form.Item>
-          <Form.Item label="Crelio organizations (per centre)" required
-            tooltip="Which Crelio orgs' bookings belong to this corporate. A corporate can have one or more per centre.">
+          <Form.Item label="Crelio organizations (per centre)" required>
             <OrgMappingBuilder value={orgDraft} onChange={setOrgDraft} />
           </Form.Item>
-          <Alert type="info" showIcon message="Bookings under these org IDs (past and future) become visible to this corporate's users." />
         </Form>
       </Modal>
 
       {/* New staff/admin login */}
       <Modal title="New staff / admin login" open={staffOpen} onCancel={() => setStaffOpen(false)}
-        onOk={submitStaff} okText="Create" confirmLoading={creating}>
+        onOk={submitStaff} okText="Create" confirmLoading={busy}>
         <Form form={staffForm} layout="vertical" initialValues={{ kind: "staff" }}>
           <Form.Item name="email" label="Email" rules={[{ required: true, type: "email" }]}>
             <Input placeholder="person@cadabams.com" />

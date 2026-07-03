@@ -12,6 +12,8 @@ export default defineConfig({
       "/catalogue": "http://localhost:3000",
       "/webhook": "http://localhost:3000",
       "/health": "http://localhost:3000",
+      "/data": "http://localhost:3000",
+      "/actions": "http://localhost:3000",
       // Patient-portal backend (PDF signing, SMS hook). Note: /api/* — the SPA
       // owns /portal/* as client-side routes, so the API must not shadow them.
       "/api": "http://localhost:3000",
