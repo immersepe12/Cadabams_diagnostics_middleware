@@ -32,6 +32,7 @@ import { Worklist } from "./pages/radiology/worklist";
 import { BookingNew } from "./pages/bookings/new";
 import { CorporatesList } from "./pages/corporates/list";
 import { CorporateShow } from "./pages/corporates/show";
+import { OrganisationShow } from "./pages/corporates/organisation";
 import { PortalAuthenticated } from "./portal/PortalAuthenticated";
 import { PortalLayout } from "./portal/PortalLayout";
 import { PortalLogin } from "./portal/login";
@@ -140,6 +141,7 @@ export default function App() {
               <Route path="/radiology/ct-mri" element={<Worklist modality="ctmri" title="CT & MRI" />} />
               <Route path="/radiology/xray" element={<Worklist modality="xray" title="X-Ray" />} />
               <Route path="/corporates" element={<CorporatesList />} />
+              <Route path="/corporates/org/:name" element={<OrganisationShow />} />
               <Route path="/corporates/:id" element={<CorporateShow />} />
             </Route>
 

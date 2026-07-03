@@ -372,6 +372,14 @@ export function CorporatesList() {
             dataSource={orgGroups} rowKey="key" size="small"
             scroll={{ x: "max-content" }}
             pagination={{ pageSize: 25, showSizeChanger: true, showTotal: (t) => `${t} organisations` }}
+            onRow={(g) => ({
+              onClick: (e) => {
+                // Don't hijack the expand-arrow's click.
+                if ((e.target as HTMLElement).closest(".ant-table-row-expand-icon")) return;
+                navigate(`/corporates/org/${encodeURIComponent(g.name)}`);
+              },
+            })}
+            style={{ cursor: "pointer" }}
             expandable={{
               rowExpandable: (g) => g.refs.length > 0 || g.tests.length > 0,
               expandedRowRender: (g) => (
@@ -436,7 +444,7 @@ export function CorporatesList() {
             )} />
             <Table.Column<OrgGroup> title="Portal access" width={220} render={(_, g) => (
               g.linked.length
-                ? <Space wrap size={4}>{g.linked.map((l) => (
+                ? <Space wrap size={4} onClick={(e) => e.stopPropagation()}>{g.linked.map((l) => (
                     <Link key={l.corpId} to={`/corporates/${l.corpId}`}>
                       <Tag color="green" style={{ cursor: "pointer" }}>{l.corpName}</Tag>
                     </Link>
@@ -444,7 +452,7 @@ export function CorporatesList() {
                 : <Tag>not set up</Tag>
             )} />
             <Table.Column<OrgGroup> title="Actions" width={200} render={(_, g) => (
-              <Space>
+              <Space onClick={(e) => e.stopPropagation()}>
                 {g.linked.length === 0 ? (
                   <Button size="small" type="primary" icon={<LinkOutlined />} onClick={() => openLink(g)}>
                     Link corporate
