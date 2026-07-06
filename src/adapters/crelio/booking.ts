@@ -137,6 +137,12 @@ export async function createBooking(input: BookingInput) {
       crelio_bill_id:    crelioBillId || null,
       crelio_patient_id: crelioPatientId || null,
       crelio_org_id:     input.organizationIdLH ?? null,
+      // Scheduling — Crelio never sends these back, so capture them at booking.
+      booking_mode:      input.appointment ? "appointment" : input.homeCollection ? "home" : input.channel === "walkin" ? "walkin" : null,
+      appointment_start: input.appointment?.startDate ?? null,
+      appointment_end:   input.appointment?.endDate ?? null,
+      home_collection_at:      input.homeCollection?.dateTime ?? null,
+      home_collection_address: input.homeCollection?.address ?? null,
     })
     .select("id")
     .single();

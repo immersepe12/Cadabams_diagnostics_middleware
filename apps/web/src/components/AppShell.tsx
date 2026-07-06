@@ -4,7 +4,7 @@ import { useGetIdentity, useLogout } from "@refinedev/core";
 import { Layout, Menu, Grid, Button, Drawer, Typography, Avatar, Tooltip } from "antd";
 import {
   FileTextOutlined, UserOutlined, ExperimentOutlined, ScanOutlined,
-  MenuOutlined, LogoutOutlined, BankOutlined,
+  MenuOutlined, LogoutOutlined, BankOutlined, CalendarOutlined, HomeOutlined,
 } from "@ant-design/icons";
 import { BRAND } from "../theme";
 
@@ -16,6 +16,8 @@ const { useBreakpoint } = Grid;
 
 const NAV = [
   { key: "/bills", icon: <FileTextOutlined />, label: "Bills" },
+  { key: "/appointments", icon: <CalendarOutlined />, label: "Appointments" },
+  { key: "/home-collection", icon: <HomeOutlined />, label: "Home Collection" },
   { key: "/patients", icon: <UserOutlined />, label: "Patients" },
   { key: "/tests", icon: <ExperimentOutlined />, label: "Tests" },
   {
@@ -32,7 +34,7 @@ const NAV = [
 // Admin-only section (user & corporate management).
 const ADMIN_NAV = [{ key: "/corporates", icon: <BankOutlined />, label: "Corporates" }];
 
-const NAV_KEYS = ["/bills", "/patients", "/tests", "/radiology/us", "/radiology/ct-mri", "/radiology/xray", "/radiology", "/corporates"];
+const NAV_KEYS = ["/bills", "/appointments", "/home-collection", "/patients", "/tests", "/radiology/us", "/radiology/ct-mri", "/radiology/xray", "/radiology", "/corporates"];
 
 function Brand({ compact = false }: { compact?: boolean }) {
   return (

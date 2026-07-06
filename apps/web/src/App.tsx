@@ -30,6 +30,8 @@ import { TestList } from "./pages/tests/list";
 import { RadiologyList } from "./pages/radiology/list";
 import { Worklist } from "./pages/radiology/worklist";
 import { BookingNew } from "./pages/bookings/new";
+import { AppointmentsList } from "./pages/scheduling/appointments";
+import { HomeCollectionList } from "./pages/scheduling/homecollection";
 import { CorporatesList } from "./pages/corporates/list";
 import { CorporateShow } from "./pages/corporates/show";
 import { OrganisationShow } from "./pages/corporates/organisation";
@@ -45,6 +47,8 @@ import { CorporateDashboard } from "./corporate/pages/Dashboard";
 import { CorporateOrders } from "./corporate/pages/Orders";
 import { CorporateOrderDetail } from "./corporate/pages/OrderDetail";
 import { CorporateBook } from "./corporate/pages/Book";
+import { CorporateAppointments } from "./corporate/pages/Appointments";
+import { CorporateHomeCollection } from "./corporate/pages/HomeCollection";
 
 // Inside the ops <Authenticated> group a session is guaranteed, but corporate
 // and patient logins share the auth pool. Route each identity to its own app:
@@ -135,6 +139,8 @@ export default function App() {
               <Route path="/bills" element={<BillList />} />
               <Route path="/bills/new" element={<BookingNew />} />
               <Route path="/bills/:id" element={<BillShow />} />
+              <Route path="/appointments" element={<AppointmentsList />} />
+              <Route path="/home-collection" element={<HomeCollectionList />} />
               <Route path="/tests" element={<TestList />} />
               <Route path="/radiology" element={<RadiologyList />} />
               <Route path="/radiology/us" element={<Worklist modality="us" title="Ultrasound" />} />
@@ -178,6 +184,8 @@ export default function App() {
               <Route index element={<CorporateDashboard />} />
               <Route path="orders" element={<CorporateOrders />} />
               <Route path="orders/:id" element={<CorporateOrderDetail />} />
+              <Route path="appointments" element={<CorporateAppointments />} />
+              <Route path="home-collection" element={<CorporateHomeCollection />} />
               <Route path="book" element={<CorporateBook />} />
             </Route>
 

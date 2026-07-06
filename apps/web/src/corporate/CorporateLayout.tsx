@@ -10,6 +10,8 @@ const { useBreakpoint } = Grid;
 const TABS = [
   { key: "/corporate", label: "Dashboard" },
   { key: "/corporate/orders", label: "Orders" },
+  { key: "/corporate/appointments", label: "Appointments" },
+  { key: "/corporate/home-collection", label: "Home" },
   { key: "/corporate/book", label: "Book" },
 ];
 
